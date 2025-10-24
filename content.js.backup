@@ -1,13 +1,5 @@
 // Content script to extract YouTube transcriptions
 
-// Prevent multiple injections
-if (window.transcriptDownloaderLoaded) {
-  console.log('[Transcript Downloader] Already loaded, skipping...');
-} else {
-  window.transcriptDownloaderLoaded = true;
-  console.log('[Transcript Downloader] Content script loading for the first time...');
-}
-
 async function getTranscript(includeTimestamps) {
   try {
     // Wait for the page to be fully loaded
@@ -172,6 +164,7 @@ function addDownloadButton() {
           <svg viewBox="0 0 24 24" style="width: 20px; height: 20px; fill: currentColor;">
             <path d="M5,20H19V18H5M19,9H15V3H9V9H5L12,16L19,9Z"/>
           </svg>
+          <span style="margin-left: 4px;">Download</span>
         `;
         downloadBtn.style.cssText = `
           display: flex;
@@ -277,9 +270,7 @@ function downloadTranscriptFile(content, videoTitle) {
     .substring(0, 100);
 
   const filename = `transcript_${safeTitle}.txt`;
-  const blob = new Blob([content], {
-    type: 'text/plain'
-  });
+  const blob = new Blob([content], { type: 'text/plain' });
   const url = URL.createObjectURL(blob);
 
   const a = document.createElement('a');
@@ -291,39 +282,34 @@ function downloadTranscriptFile(content, videoTitle) {
   URL.revokeObjectURL(url);
 }
 
-// Only initialize once
-if (!window.transcriptDownloaderInitialized) {
-  window.transcriptDownloaderInitialized = true;
+// Continuously check for transcript panel (more aggressive approach)
+console.log('[Transcript Downloader] Content script loaded!');
 
-  // Continuously check for transcript panel (more aggressive approach)
-  console.log('[Transcript Downloader] Content script loaded!');
+// Run check every 2 seconds
+setInterval(() => {
+  const transcriptPanel = document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]');
 
-  // Run check every 2 seconds
-  setInterval(() => {
-    const transcriptPanel = document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]');
-
-    if (transcriptPanel && transcriptPanel.getAttribute('visibility') === 'ENGAGEMENT_PANEL_VISIBILITY_EXPANDED') {
-      if (!document.getElementById('transcript-download-btn')) {
-        console.log('[Transcript Downloader] Panel is open, adding button...');
-        addDownloadButton();
-      }
-    }
-  }, 2000);
-
-  // Also check on page load
-  setTimeout(() => {
-    console.log('[Transcript Downloader] Initial check...');
-    const transcriptPanel = document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]');
-    if (transcriptPanel && transcriptPanel.getAttribute('visibility') === 'ENGAGEMENT_PANEL_VISIBILITY_EXPANDED') {
+  if (transcriptPanel && transcriptPanel.getAttribute('visibility') === 'ENGAGEMENT_PANEL_VISIBILITY_EXPANDED') {
+    if (!document.getElementById('transcript-download-btn')) {
+      console.log('[Transcript Downloader] Panel is open, adding button...');
       addDownloadButton();
     }
-  }, 2000);
+  }
+}, 2000);
 
-  // Listen for messages from popup
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.action === 'getTranscript') {
-      getTranscript(request.includeTimestamps).then(sendResponse);
-      return true; // Keep the message channel open for async response
-    }
-  });
-}
+// Also check on page load
+setTimeout(() => {
+  console.log('[Transcript Downloader] Initial check...');
+  const transcriptPanel = document.querySelector('ytd-engagement-panel-section-list-renderer[target-id="engagement-panel-searchable-transcript"]');
+  if (transcriptPanel && transcriptPanel.getAttribute('visibility') === 'ENGAGEMENT_PANEL_VISIBILITY_EXPANDED') {
+    addDownloadButton();
+  }
+}, 2000);
+
+// Listen for messages from popup
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === 'getTranscript') {
+    getTranscript(request.includeTimestamps).then(sendResponse);
+    return true; // Keep the message channel open for async response
+  }
+});
