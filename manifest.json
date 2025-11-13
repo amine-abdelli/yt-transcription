@@ -10,7 +10,8 @@
     "storage"
   ],
   "host_permissions": [
-    "https://www.youtube.com/*"
+    "https://www.youtube.com/*",
+    "https://api.openai.com/*"
   ],
   "action": {
     "default_popup": "popup.html"
@@ -18,7 +19,7 @@
   "content_scripts": [
     {
       "matches": ["https://www.youtube.com/watch*"],
-      "js": ["content.js"],
+      "js": ["openai-summary.js", "content.js"],
       "run_at": "document_idle"
     }
   ]

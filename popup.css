@@ -107,3 +107,99 @@ h1 {
   color: #5f6368;
   line-height: 1.5;
 }
+
+.divider {
+  height: 1px;
+  background: #dadce0;
+  margin: 20px 0;
+}
+
+.settings-section {
+  margin-bottom: 20px;
+}
+
+.settings-section h2 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #202124;
+}
+
+.api-key-section label {
+  display: block;
+  font-size: 12px;
+  color: #5f6368;
+  margin-bottom: 6px;
+}
+
+.input-group {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.input-group input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #dadce0;
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: monospace;
+}
+
+.input-group input:focus {
+  outline: none;
+  border-color: #1a73e8;
+}
+
+.icon-btn {
+  padding: 8px 12px;
+  background: #f1f3f4;
+  border: 1px solid #dadce0;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.2s;
+}
+
+.icon-btn:hover {
+  background: #e8eaed;
+}
+
+.save-btn {
+  width: 100%;
+  padding: 8px 16px;
+  background: #34a853;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+  margin-bottom: 8px;
+}
+
+.save-btn:hover {
+  background: #2d9048;
+}
+
+.save-btn:active {
+  background: #268040;
+}
+
+.api-key-info {
+  margin: 0;
+  font-size: 11px;
+  color: #5f6368;
+  line-height: 1.4;
+}
+
+.api-key-info a {
+  color: #1a73e8;
+  text-decoration: none;
+}
+
+.api-key-info a:hover {
+  text-decoration: underline;
+}

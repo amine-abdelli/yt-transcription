@@ -27,11 +27,36 @@
       Download Transcript
     </button>
 
+    <div class="divider"></div>
+
+    <div class="settings-section">
+      <h2>AI Summary Settings</h2>
+      <div class="api-key-section">
+        <label for="apiKeyInput">OpenAI API Key:</label>
+        <div class="input-group">
+          <input
+            type="password"
+            id="apiKeyInput"
+            placeholder="sk-..."
+            autocomplete="off"
+          >
+          <button id="toggleApiKey" class="icon-btn" title="Show/Hide API Key">
+            👁️
+          </button>
+        </div>
+        <button id="saveApiKey" class="save-btn">Save API Key</button>
+        <p class="api-key-info">
+          <small>Get your API key from <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI</a>. Your key is stored locally and never shared.</small>
+        </p>
+      </div>
+    </div>
+
     <div class="info">
       <p>Make sure you're on a YouTube video page with captions available.</p>
     </div>
   </div>
 
+  <script src="openai-summary.js"></script>
   <script src="popup.js"></script>
 </body>
 

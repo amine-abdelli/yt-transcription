@@ -17,6 +17,54 @@ document.addEventListener('DOMContentLoaded', function() {
     chrome.storage.sync.set({ includeTimestamps: this.checked });
   });
 
+  // API Key management
+  const apiKeyInput = document.getElementById('apiKeyInput');
+  const toggleApiKeyBtn = document.getElementById('toggleApiKey');
+  const saveApiKeyBtn = document.getElementById('saveApiKey');
+
+  // Load saved API key
+  chrome.storage.sync.get(['openaiApiKey'], function(result) {
+    if (result.openaiApiKey) {
+      apiKeyInput.value = result.openaiApiKey;
+    }
+  });
+
+  // Toggle API key visibility
+  toggleApiKeyBtn.addEventListener('click', function() {
+    if (apiKeyInput.type === 'password') {
+      apiKeyInput.type = 'text';
+      toggleApiKeyBtn.textContent = '🙈';
+    } else {
+      apiKeyInput.type = 'password';
+      toggleApiKeyBtn.textContent = '👁️';
+    }
+  });
+
+  // Save API key
+  saveApiKeyBtn.addEventListener('click', async function() {
+    const apiKey = apiKeyInput.value.trim();
+
+    if (!apiKey) {
+      setStatus('Please enter an API key', 'error');
+      return;
+    }
+
+    if (!apiKey.startsWith('sk-')) {
+      setStatus('Invalid API key format. Should start with "sk-"', 'error');
+      return;
+    }
+
+    try {
+      await chrome.storage.sync.set({ openaiApiKey: apiKey });
+      setStatus('API key saved successfully!', 'success');
+      setTimeout(() => {
+        setStatus('Ready to download transcript', '');
+      }, 2000);
+    } catch (error) {
+      setStatus('Failed to save API key', 'error');
+    }
+  });
+
   downloadBtn.addEventListener('click', async function() {
     try {
       // Check if we're on a YouTube video page

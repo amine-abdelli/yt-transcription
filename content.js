@@ -99,6 +99,179 @@ async function findTranscriptButton() {
   return null;
 }
 
+// Create and show summary modal
+function showSummaryModal(summary) {
+  // Remove existing modal if any
+  const existingModal = document.getElementById('transcript-summary-modal');
+  if (existingModal) {
+    existingModal.remove();
+  }
+
+  // Create modal overlay
+  const modal = document.createElement('div');
+  modal.id = 'transcript-summary-modal';
+  modal.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+  `;
+
+  // Create modal content
+  const modalContent = document.createElement('div');
+  modalContent.style.cssText = `
+    background: var(--yt-spec-base-background);
+    color: var(--yt-spec-text-primary);
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 800px;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  `;
+
+  // Create header
+  const header = document.createElement('div');
+  header.style.cssText = `
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--yt-spec-10-percent-layer);
+  `;
+
+  const title = document.createElement('h2');
+  title.textContent = 'Video Summary';
+  title.style.cssText = `
+    margin: 0;
+    font-size: 24px;
+    font-family: "Roboto", Arial, sans-serif;
+  `;
+
+  const closeBtn = document.createElement('button');
+  closeBtn.innerHTML = '×';
+  closeBtn.style.cssText = `
+    background: transparent;
+    border: none;
+    font-size: 32px;
+    cursor: pointer;
+    color: var(--yt-spec-text-primary);
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  `;
+  closeBtn.onclick = () => modal.remove();
+
+  header.appendChild(title);
+  header.appendChild(closeBtn);
+
+  // Create summary content
+  const summaryDiv = document.createElement('div');
+  summaryDiv.style.cssText = `
+    font-family: "Roboto", Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+  `;
+  summaryDiv.textContent = summary;
+
+  // Create copy button
+  const copyBtn = document.createElement('button');
+  copyBtn.textContent = 'Copy Summary';
+  copyBtn.style.cssText = `
+    margin-top: 16px;
+    padding: 10px 20px;
+    background: #065fd4;
+    color: white;
+    border: none;
+    border-radius: 18px;
+    cursor: pointer;
+    font-family: "Roboto", Arial, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+  `;
+  copyBtn.onclick = () => {
+    navigator.clipboard.writeText(summary);
+    copyBtn.textContent = 'Copied!';
+    setTimeout(() => {
+      copyBtn.textContent = 'Copy Summary';
+    }, 2000);
+  };
+
+  modalContent.appendChild(header);
+  modalContent.appendChild(summaryDiv);
+  modalContent.appendChild(copyBtn);
+  modal.appendChild(modalContent);
+
+  // Close on background click
+  modal.onclick = (e) => {
+    if (e.target === modal) {
+      modal.remove();
+    }
+  };
+
+  document.body.appendChild(modal);
+}
+
+// Handle summarize button click
+async function handleSummarize(includeTimestamps, button) {
+  console.log('[Transcript Downloader] Generating summary...');
+
+  // Get API key
+  const apiKey = await getApiKey();
+
+  if (!apiKey) {
+    alert('Please configure your OpenAI API key first!\n\nGo to the extension popup and enter your API key in the settings.');
+    return;
+  }
+
+  // Disable button and show loading state
+  button.disabled = true;
+  const originalHTML = button.innerHTML;
+  button.innerHTML = `
+    <svg viewBox="0 0 24 24" style="width: 20px; height: 20px; fill: currentColor; animation: spin 1s linear infinite;">
+      <path d="M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z"/>
+    </svg>
+  `;
+
+  try {
+    // Get transcript
+    const result = await getTranscript(includeTimestamps);
+
+    if (!result.success) {
+      alert('Failed to get transcript: ' + result.error);
+      return;
+    }
+
+    // Generate summary using OpenAI
+    const summaryResult = await generateSummary(result.transcript, apiKey);
+
+    if (summaryResult.success) {
+      showSummaryModal(summaryResult.summary);
+    } else {
+      alert('Failed to generate summary: ' + summaryResult.error);
+    }
+
+  } catch (error) {
+    console.error('[Transcript Downloader] Summary error:', error);
+    alert('Error generating summary: ' + error.message);
+  } finally {
+    // Restore button
+    button.innerHTML = originalHTML;
+    button.disabled = false;
+  }
+}
+
 // Add download button to transcript panel
 function addDownloadButton() {
   console.log('[Transcript Downloader] Attempting to add download button...');
@@ -249,8 +422,45 @@ function addDownloadButton() {
           }
         });
 
+        // Create Summarize button
+        const summarizeBtn = document.createElement('button');
+        summarizeBtn.id = 'transcript-summarize-btn';
+        summarizeBtn.innerHTML = `
+          <svg viewBox="0 0 24 24" style="width: 20px; height: 20px; fill: currentColor;">
+            <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20M15,18V16H8V18H15M15,14V12H8V14H15Z"/>
+          </svg>
+        `;
+        summarizeBtn.title = 'Summarize with AI';
+        summarizeBtn.style.cssText = `
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 36px;
+          height: 36px;
+          background: transparent;
+          color: var(--yt-spec-text-primary);
+          border: 1px solid var(--yt-spec-10-percent-layer);
+          border-radius: 18px;
+          cursor: pointer;
+          font-family: "Roboto","Arial",sans-serif;
+          transition: background 0.2s;
+        `;
+
+        summarizeBtn.addEventListener('mouseenter', () => {
+          summarizeBtn.style.background = 'var(--yt-spec-badge-chip-background)';
+        });
+
+        summarizeBtn.addEventListener('mouseleave', () => {
+          summarizeBtn.style.background = 'transparent';
+        });
+
+        summarizeBtn.addEventListener('click', async () => {
+          await handleSummarize(checkbox.checked, summarizeBtn);
+        });
+
         container.appendChild(checkboxLabel);
         container.appendChild(downloadBtn);
+        container.appendChild(summarizeBtn);
 
         // Insert into header
         if (!header.querySelector('#transcript-download-container')) {
