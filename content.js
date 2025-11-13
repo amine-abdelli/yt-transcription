@@ -238,8 +238,17 @@ async function handleSummarize(includeTimestamps, button) {
   // Disable button and show loading state
   button.disabled = true;
   const originalHTML = button.innerHTML;
+
+  // Add spin animation if not already present
+  if (!document.getElementById('spinner-animation-style')) {
+    const style = document.createElement('style');
+    style.id = 'spinner-animation-style';
+    style.textContent = '@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }';
+    document.head.appendChild(style);
+  }
+
   button.innerHTML = `
-    <svg viewBox="0 0 24 24" style="width: 20px; height: 20px; fill: currentColor; animation: spin 1s linear infinite;">
+    <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; fill: currentColor; animation: spin 1s linear infinite;">
       <path d="M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z"/>
     </svg>
   `;
@@ -309,9 +318,9 @@ function addDownloadButton() {
         container.style.cssText = `
           display: flex;
           align-items: center;
-          gap: 8px;
-          margin-left: auto;
-          padding-right: 16px;
+          justify-content: center;
+          gap: 6px;
+          margin: 0 auto;
         `;
 
         // Create checkbox for timestamps
@@ -324,6 +333,7 @@ function addDownloadButton() {
           cursor: pointer;
           user-select: none;
           white-space: nowrap;
+          margin-right: 4px;
         `;
 
         const checkbox = document.createElement('input');
@@ -333,50 +343,51 @@ function addDownloadButton() {
         checkbox.style.cssText = `
           margin-right: 4px;
           cursor: pointer;
+          accent-color: #3ea6ff;
         `;
 
         checkboxLabel.appendChild(checkbox);
-        checkboxLabel.appendChild(document.createTextNode('Timestamps'));
+        checkboxLabel.appendChild(document.createTextNode('Tstps'));
 
         // Create download button
         const downloadBtn = document.createElement('button');
         downloadBtn.id = 'transcript-download-btn';
         downloadBtn.innerHTML = `
-          <svg viewBox="0 0 24 24" style="width: 20px; height: 20px; fill: currentColor;">
+          <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; fill: currentColor;">
             <path d="M5,20H19V18H5M19,9H15V3H9V9H5L12,16L19,9Z"/>
           </svg>
         `;
+        // downloadBtn.title = 'Download transcript';
         downloadBtn.style.cssText = `
           display: flex;
           align-items: center;
-          padding: 8px 12px;
-          background: transparent;
-          color: var(--yt-spec-text-primary);
-          border: 1px solid var(--yt-spec-10-percent-layer);
-          border-radius: 18px;
+          justify-content: center;
+          width: 32px;
+          height: 32px;
+          padding: 0;
+          background: var(--yt-spec-badge-chip-background);
+          color: var(--yt-spec-text-secondary);
+          border: none;
+          border-radius: 16px;
           cursor: pointer;
-          font-family: "Roboto","Arial",sans-serif;
-          font-size: 14px;
-          font-weight: 500;
-          transition: background 0.2s;
+          transition: background 0.1s;
         `;
 
         downloadBtn.addEventListener('mouseenter', () => {
-          downloadBtn.style.background = 'var(--yt-spec-badge-chip-background)';
+          downloadBtn.style.background = 'rgba(255, 255, 255, 0.1)';
         });
 
         downloadBtn.addEventListener('mouseleave', () => {
-          downloadBtn.style.background = 'transparent';
+          downloadBtn.style.background = 'var(--yt-spec-badge-chip-background)';
         });
 
         downloadBtn.addEventListener('click', async () => {
           const includeTimestamps = checkbox.checked;
           downloadBtn.disabled = true;
           downloadBtn.innerHTML = `
-            <svg viewBox="0 0 24 24" style="width: 20px; height: 20px; fill: currentColor; animation: spin 1s linear infinite;">
+            <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; fill: currentColor; animation: spin 1s linear infinite;">
               <path d="M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z"/>
             </svg>
-            <span style="margin-left: 4px;">Downloading...</span>
           `;
 
           // Add spin animation
@@ -389,33 +400,29 @@ function addDownloadButton() {
           if (result.success) {
             downloadTranscriptFile(result.transcript, result.title);
             downloadBtn.innerHTML = `
-              <svg viewBox="0 0 24 24" style="width: 20px; height: 20px; fill: #0f0;">
+              <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; fill: #0f0;">
                 <path d="M9,20.42L2.79,14.21L5.62,11.38L9,14.77L18.88,4.88L21.71,7.71L9,20.42Z"/>
               </svg>
-              <span style="margin-left: 4px;">Downloaded!</span>
             `;
             setTimeout(() => {
               downloadBtn.innerHTML = `
-                <svg viewBox="0 0 24 24" style="width: 20px; height: 20px; fill: currentColor;">
+                <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; fill: currentColor;">
                   <path d="M5,20H19V18H5M19,9H15V3H9V9H5L12,16L19,9Z"/>
                 </svg>
-                <span style="margin-left: 4px;">Download</span>
               `;
               downloadBtn.disabled = false;
             }, 2000);
           } else {
             downloadBtn.innerHTML = `
-              <svg viewBox="0 0 24 24" style="width: 20px; height: 20px; fill: #f00;">
+              <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; fill: #f00;">
                 <path d="M13,13H11V7H13M13,17H11V15H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z"/>
               </svg>
-              <span style="margin-left: 4px;">Error</span>
             `;
             setTimeout(() => {
               downloadBtn.innerHTML = `
-                <svg viewBox="0 0 24 24" style="width: 20px; height: 20px; fill: currentColor;">
+                <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; fill: currentColor;">
                   <path d="M5,20H19V18H5M19,9H15V3H9V9H5L12,16L19,9Z"/>
                 </svg>
-                <span style="margin-left: 4px;">Download</span>
               `;
               downloadBtn.disabled = false;
             }, 2000);
@@ -426,7 +433,7 @@ function addDownloadButton() {
         const summarizeBtn = document.createElement('button');
         summarizeBtn.id = 'transcript-summarize-btn';
         summarizeBtn.innerHTML = `
-          <svg viewBox="0 0 24 24" style="width: 20px; height: 20px; fill: currentColor;">
+          <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; fill: currentColor;">
             <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20M15,18V16H8V18H15M15,14V12H8V14H15Z"/>
           </svg>
         `;
@@ -435,23 +442,23 @@ function addDownloadButton() {
           display: flex;
           align-items: center;
           justify-content: center;
-          width: 36px;
-          height: 36px;
-          background: transparent;
-          color: var(--yt-spec-text-primary);
-          border: 1px solid var(--yt-spec-10-percent-layer);
-          border-radius: 18px;
+          width: 32px;
+          height: 32px;
+          padding: 0;
+          background: var(--yt-spec-badge-chip-background);
+          color: var(--yt-spec-text-secondary);
+          border: none;
+          border-radius: 16px;
           cursor: pointer;
-          font-family: "Roboto","Arial",sans-serif;
-          transition: background 0.2s;
+          transition: background 0.1s;
         `;
 
         summarizeBtn.addEventListener('mouseenter', () => {
-          summarizeBtn.style.background = 'var(--yt-spec-badge-chip-background)';
+          summarizeBtn.style.background = 'rgba(255, 255, 255, 0.1)';
         });
 
         summarizeBtn.addEventListener('mouseleave', () => {
-          summarizeBtn.style.background = 'transparent';
+          summarizeBtn.style.background = 'var(--yt-spec-badge-chip-background)';
         });
 
         summarizeBtn.addEventListener('click', async () => {
@@ -466,6 +473,7 @@ function addDownloadButton() {
         if (!header.querySelector('#transcript-download-container')) {
           header.style.display = 'flex';
           header.style.alignItems = 'center';
+          header.style.justifyContent = 'center';
           header.appendChild(container);
           console.log('[Transcript Downloader] ✅ Download button added successfully!');
         }

@@ -29,16 +29,16 @@ async function generateSummary(transcript, apiKey) {
         messages: [
           {
             role: 'system',
-            content: 'You are a helpful assistant that creates concise, informative summaries of video transcripts. Provide a clear summary with key points in bullet format.'
+            content: 'You are a helpful assistant that creates concise, informative summaries of video transcripts in French. Provide a clear summary with key points in bullet format. Always respond in French. Also do not answer in markdown format. No ### or ***.'
           },
           {
             role: 'user',
-            content: `Please summarize the following video transcript. Include:
-1. A brief overview (2-3 sentences)
-2. Main points covered (bullet points)
-3. Key takeaways
+            content: `Veuillez résumer la transcription vidéo suivante en français. Incluez :
+1. Un aperçu général (2-3 phrases)
+2. Les points principaux abordés (points à puces)
+3. Les points clés à retenir
 
-Transcript:
+Transcription :
 ${transcript}`
           }
         ],
