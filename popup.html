@@ -31,9 +31,15 @@
 
     <div class="settings-section">
       <h2>AI Summary Settings</h2>
+
       <div class="api-key-section">
         <label for="apiKeyInput">OpenAI API Key:</label>
-        <div class="input-group">
+        <div id="apiKeyStatus" class="api-key-status" style="display: none;">
+          <span class="status-indicator">✓</span>
+          <span>API Key configured</span>
+          <button id="modifyApiKey" class="modify-btn">Modify</button>
+        </div>
+        <div id="apiKeyInputGroup" class="input-group">
           <input
             type="password"
             id="apiKeyInput"
@@ -48,6 +54,16 @@
         <p class="api-key-info">
           <small>Get your API key from <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI</a>. Your key is stored locally and never shared.</small>
         </p>
+      </div>
+
+      <div class="language-section">
+        <label for="languageSelect">Summary Language:</label>
+        <select id="languageSelect" class="language-select">
+          <option value="fr">Français (French)</option>
+          <option value="en">English</option>
+          <option value="de">Deutsch (German)</option>
+          <option value="es">Español (Spanish)</option>
+        </select>
       </div>
     </div>
 

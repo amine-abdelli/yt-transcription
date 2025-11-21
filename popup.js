@@ -21,12 +21,38 @@ document.addEventListener('DOMContentLoaded', function() {
   const apiKeyInput = document.getElementById('apiKeyInput');
   const toggleApiKeyBtn = document.getElementById('toggleApiKey');
   const saveApiKeyBtn = document.getElementById('saveApiKey');
+  const apiKeyStatus = document.getElementById('apiKeyStatus');
+  const apiKeyInputGroup = document.getElementById('apiKeyInputGroup');
+  const modifyApiKeyBtn = document.getElementById('modifyApiKey');
 
   // Load saved API key
   chrome.storage.sync.get(['openaiApiKey'], function(result) {
     if (result.openaiApiKey) {
       apiKeyInput.value = result.openaiApiKey;
+      showApiKeyStatus();
+    } else {
+      showApiKeyInput();
     }
+  });
+
+  // Show API key status (when key is already set)
+  function showApiKeyStatus() {
+    apiKeyStatus.style.display = 'flex';
+    apiKeyInputGroup.style.display = 'none';
+    saveApiKeyBtn.style.display = 'none';
+  }
+
+  // Show API key input (for new or modifying)
+  function showApiKeyInput() {
+    apiKeyStatus.style.display = 'none';
+    apiKeyInputGroup.style.display = 'flex';
+    saveApiKeyBtn.style.display = 'block';
+  }
+
+  // Modify button click
+  modifyApiKeyBtn.addEventListener('click', function() {
+    showApiKeyInput();
+    apiKeyInput.focus();
   });
 
   // Toggle API key visibility
@@ -57,12 +83,35 @@ document.addEventListener('DOMContentLoaded', function() {
     try {
       await chrome.storage.sync.set({ openaiApiKey: apiKey });
       setStatus('API key saved successfully!', 'success');
+      showApiKeyStatus();
       setTimeout(() => {
         setStatus('Ready to download transcript', '');
       }, 2000);
     } catch (error) {
       setStatus('Failed to save API key', 'error');
     }
+  });
+
+  // Language selection management
+  const languageSelect = document.getElementById('languageSelect');
+
+  // Load saved language preference
+  chrome.storage.sync.get(['summaryLanguage'], function(result) {
+    if (result.summaryLanguage) {
+      languageSelect.value = result.summaryLanguage;
+    } else {
+      // Default to French
+      languageSelect.value = 'fr';
+    }
+  });
+
+  // Save language preference when changed
+  languageSelect.addEventListener('change', function() {
+    chrome.storage.sync.set({ summaryLanguage: this.value });
+    setStatus('Language preference saved', 'success');
+    setTimeout(() => {
+      setStatus('Ready to download transcript', '');
+    }, 1500);
   });
 
   downloadBtn.addEventListener('click', async function() {

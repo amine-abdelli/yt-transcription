@@ -203,3 +203,65 @@ h1 {
 .api-key-info a:hover {
   text-decoration: underline;
 }
+
+.api-key-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #e6f4ea;
+  border: 1px solid #c6e1c6;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: #137333;
+}
+
+.status-indicator {
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.modify-btn {
+  margin-left: auto;
+  padding: 4px 12px;
+  background: #1a73e8;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.modify-btn:hover {
+  background: #1765cc;
+}
+
+.language-section {
+  margin-top: 16px;
+}
+
+.language-section label {
+  display: block;
+  font-size: 12px;
+  color: #5f6368;
+  margin-bottom: 6px;
+}
+
+.language-select {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #dadce0;
+  border-radius: 4px;
+  font-size: 13px;
+  background: white;
+  cursor: pointer;
+  color: #202124;
+}
+
+.language-select:focus {
+  outline: none;
+  border-color: #1a73e8;
+}
