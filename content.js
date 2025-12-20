@@ -100,12 +100,16 @@ async function findTranscriptButton() {
 }
 
 // Create and show summary modal
-function showSummaryModal(summary, summaryMode = 'detailed') {
+function showSummaryModal(summary, summaryMode = 'detailed', isLoading = false) {
   // Remove existing modal if any
   const existingModal = document.getElementById('transcript-summary-modal');
   if (existingModal) {
     existingModal.remove();
   }
+
+  // Get video title for the header
+  const titleElement = document.querySelector('h1.ytd-watch-metadata yt-formatted-string');
+  const videoTitle = titleElement ? titleElement.textContent.trim() : '';
 
   // Create modal overlay
   const modal = document.createElement('div');
@@ -129,56 +133,80 @@ function showSummaryModal(summary, summaryMode = 'detailed') {
     background: var(--yt-spec-base-background);
     color: var(--yt-spec-text-primary);
     border-radius: 12px;
-    padding: 24px;
+    padding: 0;
+    width: 90%;
     max-width: 800px;
     max-height: 80vh;
-    overflow-y: auto;
+    overflow: hidden;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    display: flex;
+    flex-direction: column;
   `;
 
   // Create header
   const header = document.createElement('div');
   header.style.cssText = `
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 16px;
-    padding-bottom: 16px;
+    align-items: flex-start;
+    padding: 24px;
     border-bottom: 1px solid var(--yt-spec-10-percent-layer);
+    gap: 16px;
   `;
 
-  const titleContainer = document.createElement('div');
-  const title = document.createElement('h2');
+  // Red circle with star icon
+  const iconCircle = document.createElement('div');
+  iconCircle.style.cssText = `
+    width: 48px;
+    height: 48px;
+    background: #d32f2f;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  `;
+  iconCircle.innerHTML = `
+    <svg viewBox="0 0 24 24" style="width: 24px; height: 24px; fill: white;">
+      <path d="M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z"/>
+    </svg>
+  `;
 
-  const titleText = summaryMode === 'express' ? 'Ultra-short Summary' :
-                    summaryMode === 'bullets' ? 'Bullet Points' :
+  // Title section
+  const titleSection = document.createElement('div');
+  titleSection.style.cssText = `
+    flex: 1;
+    min-width: 0;
+  `;
+
+  const modeTitle = document.createElement('h2');
+  const titleText = summaryMode === 'express' ? 'Quick Summary' :
+                    summaryMode === 'bullets' ? 'Bullet Points Summary' :
                     'Detailed Summary';
-  title.textContent = titleText;
-  title.style.cssText = `
-    margin: 0;
-    font-size: 24px;
+  modeTitle.textContent = titleText;
+  modeTitle.style.cssText = `
+    margin: 0 0 4px 0;
+    font-size: 20px;
     font-family: "Roboto", Arial, sans-serif;
+    font-weight: 500;
   `;
 
-  if (summaryMode === 'express') {
-    const badge = document.createElement('span');
-    badge.textContent = '⚡ 3 sentences';
-    badge.style.cssText = `
-      display: inline-block;
-      margin-left: 8px;
-      padding: 4px 8px;
-      background: #ff6b35;
-      color: white;
-      border-radius: 4px;
-      font-size: 12px;
-      font-weight: 600;
-      vertical-align: middle;
-    `;
-    title.appendChild(badge);
-  }
+  const videoTitleDiv = document.createElement('div');
+  videoTitleDiv.textContent = videoTitle;
+  videoTitleDiv.style.cssText = `
+    font-size: 14px;
+    color: var(--yt-spec-text-secondary);
+    font-family: "Roboto", Arial, sans-serif;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  `;
 
-  titleContainer.appendChild(title);
+  titleSection.appendChild(modeTitle);
+  titleSection.appendChild(videoTitleDiv);
 
+  // Close button
   const closeBtn = document.createElement('button');
   closeBtn.innerHTML = '×';
   closeBtn.style.cssText = `
@@ -193,49 +221,226 @@ function showSummaryModal(summary, summaryMode = 'detailed') {
     display: flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
   `;
   closeBtn.onclick = () => modal.remove();
 
-  header.appendChild(titleContainer);
+  header.appendChild(iconCircle);
+  header.appendChild(titleSection);
   header.appendChild(closeBtn);
 
-  // Create summary content
-  const summaryDiv = document.createElement('div');
-  summaryDiv.style.cssText = `
-    font-family: "Roboto", Arial, sans-serif;
-    font-size: ${summaryMode === 'express' ? '16px' : '14px'};
-    line-height: ${summaryMode === 'express' ? '1.8' : '1.6'};
-    white-space: pre-wrap;
-    ${summaryMode === 'express' ? 'font-weight: 400;' : ''}
+  // Create content area
+  const contentArea = document.createElement('div');
+  contentArea.id = 'modal-content-area';
+  contentArea.style.cssText = `
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px;
+    min-height: 200px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   `;
-  summaryDiv.textContent = summary;
 
-  // Create copy button
-  const copyBtn = document.createElement('button');
-  copyBtn.textContent = 'Copy Summary';
-  copyBtn.style.cssText = `
-    margin-top: 16px;
-    padding: 10px 20px;
-    background: #065fd4;
-    color: white;
-    border: none;
+  if (isLoading) {
+    // Show loader
+    const loaderContainer = document.createElement('div');
+    loaderContainer.style.cssText = `
+      text-align: center;
+    `;
+
+    // Add spin animation if not already present
+    if (!document.getElementById('spinner-animation-style')) {
+      const style = document.createElement('style');
+      style.id = 'spinner-animation-style';
+      style.textContent = '@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }';
+      document.head.appendChild(style);
+    }
+
+    loaderContainer.innerHTML = `
+      <svg viewBox="0 0 24 24" style="width: 48px; height: 48px; fill: currentColor; animation: spin 1s linear infinite; margin-bottom: 16px;">
+        <path d="M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z"/>
+      </svg>
+      <div style="color: var(--yt-spec-text-secondary); font-family: 'Roboto', Arial, sans-serif; font-size: 14px;">
+        Generating summary...
+      </div>
+    `;
+    contentArea.appendChild(loaderContainer);
+  } else {
+    // Show summary content
+    contentArea.style.alignItems = 'flex-start';
+    contentArea.style.justifyContent = 'flex-start';
+
+    const summaryDiv = document.createElement('div');
+    summaryDiv.style.cssText = `
+      font-family: "Roboto", Arial, sans-serif;
+      font-size: ${summaryMode === 'express' ? '16px' : '14px'};
+      line-height: ${summaryMode === 'express' ? '1.8' : '1.6'};
+      white-space: pre-wrap;
+      ${summaryMode === 'express' ? 'font-weight: 400;' : ''}
+      width: 100%;
+    `;
+    summaryDiv.textContent = summary;
+    contentArea.appendChild(summaryDiv);
+  }
+
+  // Create footer with buttons (always show footer)
+  const footer = document.createElement('div');
+  footer.id = 'modal-footer';
+  footer.style.cssText = `
+    padding: 16px 24px;
+    border-top: 1px solid var(--yt-spec-10-percent-layer);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  `;
+
+  const poweredBy = document.createElement('div');
+  poweredBy.textContent = 'Powered by AI SDK';
+  poweredBy.style.cssText = `
+    font-size: 12px;
+    color: var(--yt-spec-text-secondary);
+    font-family: "Roboto", Arial, sans-serif;
+  `;
+
+  const buttonGroup = document.createElement('div');
+  buttonGroup.id = 'modal-button-group';
+  buttonGroup.style.cssText = `
+    display: flex;
+    gap: 8px;
+  `;
+
+  // Regenerate button
+  const regenerateBtn = document.createElement('button');
+  regenerateBtn.id = 'regenerate-btn';
+  regenerateBtn.disabled = isLoading;
+  regenerateBtn.innerHTML = `
+    <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; fill: currentColor; margin-right: 6px;">
+      <path d="M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z"/>
+    </svg>
+    Regenerate
+  `;
+  regenerateBtn.style.cssText = `
+    padding: 8px 16px;
+    background: transparent;
+    color: var(--yt-spec-text-primary);
+    border: 1px solid var(--yt-spec-10-percent-layer);
     border-radius: 18px;
-    cursor: pointer;
+    cursor: ${isLoading ? 'not-allowed' : 'pointer'};
     font-family: "Roboto", Arial, sans-serif;
     font-size: 14px;
     font-weight: 500;
+    display: flex;
+    align-items: center;
+    opacity: ${isLoading ? '0.5' : '1'};
+  `;
+  regenerateBtn.onclick = () => {
+    if (!isLoading) {
+      const currentMode = summaryMode;
+      modal.remove();
+      handleSummarize(true, currentMode);
+    }
+  };
+  buttonGroup.appendChild(regenerateBtn);
+
+  // Download button
+  const downloadBtn = document.createElement('button');
+  downloadBtn.id = 'download-btn';
+  downloadBtn.disabled = isLoading;
+  downloadBtn.innerHTML = `
+    <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; fill: currentColor; margin-right: 6px;">
+      <path d="M5,20H19V18H5M19,9H15V3H9V9H5L12,16L19,9Z"/>
+    </svg>
+    Download
+  `;
+  downloadBtn.style.cssText = `
+    padding: 8px 16px;
+    background: transparent;
+    color: var(--yt-spec-text-primary);
+    border: 1px solid var(--yt-spec-10-percent-layer);
+    border-radius: 18px;
+    cursor: ${isLoading ? 'not-allowed' : 'pointer'};
+    font-family: "Roboto", Arial, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    opacity: ${isLoading ? '0.5' : '1'};
+  `;
+  downloadBtn.onclick = () => {
+    if (!isLoading) {
+      const titleElement = document.querySelector('h1.ytd-watch-metadata yt-formatted-string');
+      const videoTitle = titleElement ? titleElement.textContent.trim() : 'summary';
+      const safeTitle = videoTitle
+        .replace(/[^a-z0-9]/gi, '_')
+        .replace(/_+/g, '_')
+        .substring(0, 100);
+      const filename = `summary_${safeTitle}.txt`;
+
+      const blob = new Blob([summary], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+  };
+  buttonGroup.appendChild(downloadBtn);
+
+  // Copy button
+  const copyBtn = document.createElement('button');
+  copyBtn.id = 'copy-btn';
+  copyBtn.disabled = isLoading;
+  copyBtn.innerHTML = `
+    <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; fill: ${isLoading ? 'currentColor' : 'white'}; margin-right: 6px;">
+      <path d="M16,1H4C2.9,1,2,1.9,2,3V17H4V3H16V1M19,5H8C6.9,5,6,5.9,6,7V21C6,22.1,6.9,23,8,23H19C20.1,23,21,22.1,21,21V7C21,5.9,20.1,5,19,5M19,21H8V7H19V21Z"/>
+    </svg>
+    Copy
+  `;
+  copyBtn.style.cssText = `
+    padding: 8px 16px;
+    background: ${isLoading ? 'transparent' : '#cc6666'};
+    color: ${isLoading ? 'var(--yt-spec-text-primary)' : 'white'};
+    border: ${isLoading ? '1px solid var(--yt-spec-10-percent-layer)' : 'none'};
+    border-radius: 18px;
+    cursor: ${isLoading ? 'not-allowed' : 'pointer'};
+    font-family: "Roboto", Arial, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    opacity: ${isLoading ? '0.5' : '1'};
   `;
   copyBtn.onclick = () => {
-    navigator.clipboard.writeText(summary);
-    copyBtn.textContent = 'Copied!';
-    setTimeout(() => {
-      copyBtn.textContent = 'Copy Summary';
-    }, 2000);
+    if (!isLoading) {
+      navigator.clipboard.writeText(summary);
+      copyBtn.innerHTML = `
+        <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; fill: white; margin-right: 6px;">
+          <path d="M9,20.42L2.79,14.21L5.62,11.38L9,14.77L18.88,4.88L21.71,7.71L9,20.42Z"/>
+        </svg>
+        Copied!
+      `;
+      setTimeout(() => {
+        copyBtn.innerHTML = `
+          <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; fill: white; margin-right: 6px;">
+            <path d="M16,1H4C2.9,1,2,1.9,2,3V17H4V3H16V1M19,5H8C6.9,5,6,5.9,6,7V21C6,22.1,6.9,23,8,23H19C20.1,23,21,22.1,21,21V7C21,5.9,20.1,5,19,5M19,21H8V7H19V21Z"/>
+          </svg>
+          Copy
+        `;
+      }, 2000);
+    }
   };
+  buttonGroup.appendChild(copyBtn);
+
+  footer.appendChild(poweredBy);
+  footer.appendChild(buttonGroup);
 
   modalContent.appendChild(header);
-  modalContent.appendChild(summaryDiv);
-  modalContent.appendChild(copyBtn);
+  modalContent.appendChild(contentArea);
+  modalContent.appendChild(footer);
   modal.appendChild(modalContent);
 
   // Close on background click
@@ -246,6 +451,107 @@ function showSummaryModal(summary, summaryMode = 'detailed') {
   };
 
   document.body.appendChild(modal);
+
+  return modal;
+}
+
+// Update modal with summary content
+function updateModalWithSummary(summary, summaryMode) {
+  const contentArea = document.getElementById('modal-content-area');
+  const buttonGroup = document.getElementById('modal-button-group');
+  const modal = document.getElementById('transcript-summary-modal');
+
+  if (!contentArea || !buttonGroup) return;
+
+  // Update content area styling
+  contentArea.style.alignItems = 'flex-start';
+  contentArea.style.justifyContent = 'flex-start';
+  contentArea.innerHTML = '';
+
+  // Add summary text
+  const summaryDiv = document.createElement('div');
+  summaryDiv.style.cssText = `
+    font-family: "Roboto", Arial, sans-serif;
+    font-size: ${summaryMode === 'express' ? '16px' : '14px'};
+    line-height: ${summaryMode === 'express' ? '1.8' : '1.6'};
+    white-space: pre-wrap;
+    ${summaryMode === 'express' ? 'font-weight: 400;' : ''}
+    width: 100%;
+  `;
+  summaryDiv.textContent = summary;
+  contentArea.appendChild(summaryDiv);
+
+  // Enable buttons and update their state
+  const regenerateBtn = document.getElementById('regenerate-btn');
+  const downloadBtn = document.getElementById('download-btn');
+  const copyBtn = document.getElementById('copy-btn');
+
+  if (regenerateBtn) {
+    regenerateBtn.disabled = false;
+    regenerateBtn.style.opacity = '1';
+    regenerateBtn.style.cursor = 'pointer';
+    regenerateBtn.onclick = () => {
+      modal.remove();
+      handleSummarize(true, summaryMode);
+    };
+  }
+
+  if (downloadBtn) {
+    downloadBtn.disabled = false;
+    downloadBtn.style.opacity = '1';
+    downloadBtn.style.cursor = 'pointer';
+    downloadBtn.onclick = () => {
+      const titleElement = document.querySelector('h1.ytd-watch-metadata yt-formatted-string');
+      const videoTitle = titleElement ? titleElement.textContent.trim() : 'summary';
+      const safeTitle = videoTitle
+        .replace(/[^a-z0-9]/gi, '_')
+        .replace(/_+/g, '_')
+        .substring(0, 100);
+      const filename = `summary_${safeTitle}.txt`;
+
+      const blob = new Blob([summary], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    };
+  }
+
+  if (copyBtn) {
+    copyBtn.disabled = false;
+    copyBtn.style.opacity = '1';
+    copyBtn.style.cursor = 'pointer';
+    copyBtn.style.background = '#cc6666';
+    copyBtn.style.color = 'white';
+    copyBtn.style.border = 'none';
+    copyBtn.innerHTML = `
+      <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; fill: white; margin-right: 6px;">
+        <path d="M16,1H4C2.9,1,2,1.9,2,3V17H4V3H16V1M19,5H8C6.9,5,6,5.9,6,7V21C6,22.1,6.9,23,8,23H19C20.1,23,21,22.1,21,21V7C21,5.9,20.1,5,19,5M19,21H8V7H19V21Z"/>
+      </svg>
+      Copy
+    `;
+    copyBtn.onclick = () => {
+      navigator.clipboard.writeText(summary);
+      copyBtn.innerHTML = `
+        <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; fill: white; margin-right: 6px;">
+          <path d="M9,20.42L2.79,14.21L5.62,11.38L9,14.77L18.88,4.88L21.71,7.71L9,20.42Z"/>
+        </svg>
+        Copied!
+      `;
+      setTimeout(() => {
+        copyBtn.innerHTML = `
+          <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; fill: white; margin-right: 6px;">
+            <path d="M16,1H4C2.9,1,2,1.9,2,3V17H4V3H16V1M19,5H8C6.9,5,6,5.9,6,7V21C6,22.1,6.9,23,8,23H19C20.1,23,21,22.1,21,21V7C21,5.9,20.1,5,19,5M19,21H8V7H19V21Z"/>
+          </svg>
+          Copy
+        `;
+      }, 2000);
+    };
+  }
 }
 
 // Create a custom dropdown button
@@ -287,13 +593,13 @@ function createDropdownButton({ id, label, icon, options, onSelect }) {
   menu.style.cssText = `
     position: absolute;
     top: calc(100% + 4px);
-    right: 0;
+    left: 0;
     background: var(--yt-spec-menu-background);
     border-radius: 8px;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
     min-width: 200px;
     display: none;
-    z-index: 10001;
+    z-index: 999999;
     padding: 8px 0;
   `;
 
@@ -378,7 +684,7 @@ function createDropdownButton({ id, label, icon, options, onSelect }) {
 }
 
 // Handle summarize button click
-async function handleSummarize(includeTimestamps, button, summaryMode = 'detailed') {
+async function handleSummarize(includeTimestamps, summaryMode = 'detailed') {
   console.log(`[Transcript Downloader] Generating ${summaryMode} summary...`);
 
   // Get API key
@@ -389,29 +695,17 @@ async function handleSummarize(includeTimestamps, button, summaryMode = 'detaile
     return;
   }
 
-  // Disable button and show loading state
-  button.disabled = true;
-  const originalHTML = button.innerHTML;
-
-  // Add spin animation if not already present
-  if (!document.getElementById('spinner-animation-style')) {
-    const style = document.createElement('style');
-    style.id = 'spinner-animation-style';
-    style.textContent = '@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }';
-    document.head.appendChild(style);
-  }
-
-  button.innerHTML = `
-    <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; fill: currentColor; animation: spin 1s linear infinite;">
-      <path d="M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z"/>
-    </svg>
-  `;
+  // Show modal with loading state immediately
+  showSummaryModal('', summaryMode, true);
 
   try {
     // Get transcript
     const result = await getTranscript(includeTimestamps);
 
     if (!result.success) {
+      // Close modal and show error
+      const modal = document.getElementById('transcript-summary-modal');
+      if (modal) modal.remove();
       alert('Failed to get transcript: ' + result.error);
       return;
     }
@@ -420,22 +714,25 @@ async function handleSummarize(includeTimestamps, button, summaryMode = 'detaile
     const summaryResult = await generateSummary(result.transcript, apiKey, summaryMode);
 
     if (summaryResult.success) {
-      showSummaryModal(summaryResult.summary, summaryMode);
+      // Update modal with summary
+      updateModalWithSummary(summaryResult.summary, summaryMode);
     } else {
+      // Close modal and show error
+      const modal = document.getElementById('transcript-summary-modal');
+      if (modal) modal.remove();
       alert('Failed to generate summary: ' + summaryResult.error);
     }
 
   } catch (error) {
     console.error('[Transcript Downloader] Summary error:', error);
+    // Close modal and show error
+    const modal = document.getElementById('transcript-summary-modal');
+    if (modal) modal.remove();
     alert('Error generating summary: ' + error.message);
-  } finally {
-    // Restore button
-    button.innerHTML = originalHTML;
-    button.disabled = false;
   }
 }
 
-// Add download button to video metadata actions
+// Add download button below the video player
 function addDownloadButton() {
   console.log('[Transcript Downloader] Attempting to add buttons...');
 
@@ -445,61 +742,109 @@ function addDownloadButton() {
     return;
   }
 
-  // Wait for the actions menu to be available
-  const checkActions = setInterval(() => {
-    const actionsMenu = document.querySelector('ytd-menu-renderer #top-level-buttons-computed');
+  // Wait for the video player container to be available
+  const checkPlayer = setInterval(() => {
+    // Find the primary column which contains the video
+    const primaryInner = document.querySelector('#primary-inner');
 
-    console.log('[Transcript Downloader] Looking for actions menu...', actionsMenu);
+    console.log('[Transcript Downloader] Looking for primary inner...', primaryInner);
 
-    if (actionsMenu && !document.getElementById('transcript-download-container')) {
-      clearInterval(checkActions);
-      console.log('[Transcript Downloader] Actions menu found!');
+    if (primaryInner && !document.getElementById('transcript-download-container')) {
+      clearInterval(checkPlayer);
+      console.log('[Transcript Downloader] Primary inner found!');
 
       // Check if we already have our buttons
-      if (actionsMenu.querySelector('#transcript-download-container')) {
+      if (primaryInner.querySelector('#transcript-download-container')) {
         console.log('[Transcript Downloader] Buttons already in DOM');
         return;
       }
-        // Create container for our buttons
-        const container = document.createElement('div');
-        container.id = 'transcript-download-container';
-        container.style.cssText = `
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 8px;
-          margin: 0 8px;
-        `;
 
-        // Create "AI-powered summaries" label
-        const aiLabel = document.createElement('span');
-        aiLabel.textContent = 'AI-powered summaries';
-        aiLabel.style.cssText = `
-          font-size: 11px;
-          color: var(--yt-spec-text-secondary);
-          font-family: "Roboto", Arial, sans-serif;
-          white-space: nowrap;
+      // Add blinking star animation to the page
+      if (!document.getElementById('blinking-star-animation')) {
+        const style = document.createElement('style');
+        style.id = 'blinking-star-animation';
+        style.textContent = `
+          @keyframes blink-star {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+          }
+          .blinking-star {
+            animation: blink-star 1.5s ease-in-out infinite;
+          }
         `;
+        document.head.appendChild(style);
+      }
 
-        // Create Summarize dropdown button
-        const summarizeDropdown = createDropdownButton({
-          id: 'transcript-summarize-dropdown',
-          label: 'Summarize',
-          icon: `<svg viewBox="0 0 24 24" style="width: 16px; height: 16px; fill: currentColor;">
-            <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20M15,18V16H8V18H15M15,14V12H8V14H15Z"/>
-          </svg>`,
+      // Create a dedicated section for our buttons
+      const section = document.createElement('div');
+      section.id = 'transcript-download-container';
+      section.style.cssText = `
+        background: var(--yt-spec-base-background) !important;
+        border: 1px solid var(--yt-spec-10-percent-layer) !important;
+        border-radius: 12px;
+        padding: 12px 16px;
+        margin: 12px 0;
+        display: flex !important;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        opacity: 1 !important;
+        visibility: visible !important;
+        transition: none !important;
+      `;
+
+      // Create left side container (buttons)
+      const leftContainer = document.createElement('div');
+      leftContainer.style.cssText = `
+        display: flex !important;
+        align-items: center;
+        gap: 8px;
+        opacity: 1 !important;
+        visibility: visible !important;
+      `;
+
+      // Create right side container (AI-powered summaries text)
+      const rightContainer = document.createElement('div');
+      rightContainer.style.cssText = `
+        display: flex !important;
+        align-items: center;
+        opacity: 1 !important;
+        visibility: visible !important;
+      `;
+
+      const titleText = document.createElement('span');
+      titleText.textContent = 'AI-powered summaries';
+      titleText.style.cssText = `
+        font-size: 12px;
+        font-weight: 400;
+        color: var(--yt-spec-text-secondary) !important;
+        font-family: "Roboto", Arial, sans-serif;
+        opacity: 1 !important;
+        visibility: visible !important;
+        display: inline-block !important;
+      `;
+
+      rightContainer.appendChild(titleText);
+
+      // Create Summarize dropdown button with star
+      const summarizeDropdown = createDropdownButton({
+        id: 'transcript-summarize-dropdown',
+        label: 'Summarize',
+        icon: `<svg viewBox="0 0 24 24" style="width: 16px; height: 16px; fill: currentColor;">
+          <path d="M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z"/>
+        </svg>`,
           options: [
             { value: 'detailed', label: 'Detailed summary', description: 'Comprehensive overview' },
             { value: 'bullets', label: 'Bullet points', description: 'Key highlights and takeaways' },
             { value: 'express', label: 'Ultra-short summary', description: '1-3 sentence overview' }
           ],
-          onSelect: async (value) => {
-            await handleSummarize(true, summarizeDropdown.button, value);
-          }
-        });
+        onSelect: async (value) => {
+          await handleSummarize(true, value);
+        }
+      });
 
-        // Create Transcript dropdown button
-        const transcriptDropdown = createDropdownButton({
+      // Create Transcript dropdown button
+      const transcriptDropdown = createDropdownButton({
           id: 'transcript-download-dropdown',
           label: 'Transcript',
           icon: `<svg viewBox="0 0 24 24" style="width: 16px; height: 16px; fill: currentColor;">
@@ -553,22 +898,32 @@ function addDownloadButton() {
                 }, 2000);
               }
             }
-          }
-        });
+        }
+      });
 
-      container.appendChild(aiLabel);
-      container.appendChild(summarizeDropdown.container);
-      container.appendChild(transcriptDropdown.container);
+      leftContainer.appendChild(summarizeDropdown.container);
+      leftContainer.appendChild(transcriptDropdown.container);
 
-      // Insert buttons into the actions menu (after share button)
-      actionsMenu.appendChild(container);
+      section.appendChild(leftContainer);
+      section.appendChild(rightContainer);
+
+      // Insert the section after the player but before metadata
+      // Find the player container
+      const playerContainer = primaryInner.querySelector('#player');
+
+      if (playerContainer && playerContainer.nextSibling) {
+        primaryInner.insertBefore(section, playerContainer.nextSibling);
+      } else {
+        // Fallback: insert at the beginning of primary-inner
+        primaryInner.insertBefore(section, primaryInner.firstChild);
+      }
 
       console.log('[Transcript Downloader] ✅ Buttons added successfully!');
     }
   }, 500);
 
   // Stop checking after 10 seconds
-  setTimeout(() => clearInterval(checkActions), 10000);
+  setTimeout(() => clearInterval(checkPlayer), 10000);
 }
 
 // Function to download transcript file
