@@ -554,8 +554,327 @@ function updateModalWithSummary(summary, summaryMode) {
   }
 }
 
+// Show settings modal
+function showSettingsModal() {
+  // Remove existing modal if any
+  const existingModal = document.getElementById('transcript-settings-modal');
+  if (existingModal) {
+    existingModal.remove();
+  }
+
+  // Create modal overlay
+  const modal = document.createElement('div');
+  modal.id = 'transcript-settings-modal';
+  modal.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+  `;
+
+  // Create modal content
+  const modalContent = document.createElement('div');
+  modalContent.style.cssText = `
+    background: var(--yt-spec-base-background);
+    color: var(--yt-spec-text-primary);
+    border-radius: 12px;
+    padding: 32px;
+    width: 90%;
+    max-width: 500px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  `;
+
+  // Title
+  const title = document.createElement('h1');
+  title.textContent = 'AI Summary Settings';
+  title.style.cssText = `
+    margin: 0 0 24px 0;
+    font-size: 28px;
+    font-family: "Roboto", Arial, sans-serif;
+    font-weight: 400;
+  `;
+
+  // API Key Section
+  const apiKeySection = document.createElement('div');
+  apiKeySection.style.cssText = `
+    margin-bottom: 24px;
+  `;
+
+  const apiKeyLabel = document.createElement('label');
+  apiKeyLabel.textContent = 'OpenAI API Key:';
+  apiKeyLabel.style.cssText = `
+    display: block;
+    font-size: 16px;
+    font-weight: 400;
+    margin-bottom: 12px;
+    font-family: "Roboto", Arial, sans-serif;
+    color: var(--yt-spec-text-primary);
+  `;
+
+  // Check if API key exists
+  let hasApiKey = false;
+  chrome.storage.sync.get(['openaiApiKey'], (result) => {
+    hasApiKey = !!result.openaiApiKey;
+
+    if (hasApiKey) {
+      // Show status box with checkmark
+      const statusBox = document.createElement('div');
+      statusBox.style.cssText = `
+        background: #d4edda;
+        border: 1px solid #c3e6cb;
+        border-radius: 8px;
+        padding: 16px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
+      `;
+
+      const statusContent = document.createElement('div');
+      statusContent.style.cssText = `
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      `;
+
+      const checkmark = document.createElement('span');
+      checkmark.innerHTML = '✓';
+      checkmark.style.cssText = `
+        color: #155724;
+        font-size: 24px;
+        font-weight: bold;
+      `;
+
+      const statusText = document.createElement('span');
+      statusText.textContent = 'API Key configured';
+      statusText.style.cssText = `
+        color: #155724;
+        font-size: 16px;
+        font-family: "Roboto", Arial, sans-serif;
+      `;
+
+      const modifyBtn = document.createElement('button');
+      modifyBtn.textContent = 'Modify';
+      modifyBtn.style.cssText = `
+        padding: 8px 20px;
+        background: #007bff;
+        color: white;
+        border: none;
+        border-radius: 18px;
+        cursor: pointer;
+        font-family: "Roboto", Arial, sans-serif;
+        font-size: 14px;
+        font-weight: 500;
+      `;
+      modifyBtn.onclick = () => {
+        statusBox.style.display = 'none';
+        inputGroup.style.display = 'flex';
+      };
+
+      statusContent.appendChild(checkmark);
+      statusContent.appendChild(statusText);
+      statusBox.appendChild(statusContent);
+      statusBox.appendChild(modifyBtn);
+
+      apiKeySection.appendChild(statusBox);
+    }
+  });
+
+  const inputGroup = document.createElement('div');
+  inputGroup.style.cssText = `
+    display: ${hasApiKey ? 'none' : 'flex'};
+    gap: 8px;
+    margin-bottom: 12px;
+  `;
+
+  const apiKeyInput = document.createElement('input');
+  apiKeyInput.type = 'password';
+  apiKeyInput.placeholder = 'sk-...';
+  apiKeyInput.style.cssText = `
+    flex: 1;
+    padding: 12px 16px;
+    background: var(--yt-spec-10-percent-layer);
+    color: var(--yt-spec-text-primary);
+    border: 1px solid var(--yt-spec-10-percent-layer);
+    border-radius: 8px;
+    font-family: "Roboto", Arial, sans-serif;
+    font-size: 14px;
+  `;
+
+  // Load existing API key
+  chrome.storage.sync.get(['openaiApiKey'], (result) => {
+    if (result.openaiApiKey) {
+      apiKeyInput.value = result.openaiApiKey;
+    }
+  });
+
+  const toggleVisibilityBtn = document.createElement('button');
+  toggleVisibilityBtn.innerHTML = '👁️';
+  toggleVisibilityBtn.style.cssText = `
+    padding: 12px 16px;
+    background: var(--yt-spec-10-percent-layer);
+    color: var(--yt-spec-text-primary);
+    border: 1px solid var(--yt-spec-10-percent-layer);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 16px;
+  `;
+  toggleVisibilityBtn.onclick = () => {
+    if (apiKeyInput.type === 'password') {
+      apiKeyInput.type = 'text';
+      toggleVisibilityBtn.innerHTML = '🙈';
+    } else {
+      apiKeyInput.type = 'password';
+      toggleVisibilityBtn.innerHTML = '👁️';
+    }
+  };
+
+  inputGroup.appendChild(apiKeyInput);
+  inputGroup.appendChild(toggleVisibilityBtn);
+
+  const apiKeyHelp = document.createElement('div');
+  apiKeyHelp.innerHTML = 'Get your API key from <a href="https://platform.openai.com/api-keys" target="_blank" style="color: #065fd4;">OpenAI</a>. Your key is stored locally and never shared.';
+  apiKeyHelp.style.cssText = `
+    font-size: 14px;
+    color: var(--yt-spec-text-secondary);
+    font-family: "Roboto", Arial, sans-serif;
+    line-height: 1.4;
+  `;
+
+  apiKeySection.appendChild(apiKeyLabel);
+  apiKeySection.appendChild(inputGroup);
+  apiKeySection.appendChild(apiKeyHelp);
+
+  // Language Section
+  const languageSection = document.createElement('div');
+  languageSection.style.cssText = `
+    margin-bottom: 32px;
+  `;
+
+  const languageLabel = document.createElement('label');
+  languageLabel.textContent = 'Summary Language:';
+  languageLabel.style.cssText = `
+    display: block;
+    font-size: 16px;
+    font-weight: 400;
+    margin-bottom: 12px;
+    font-family: "Roboto", Arial, sans-serif;
+    color: var(--yt-spec-text-primary);
+  `;
+
+  const languageSelect = document.createElement('select');
+  languageSelect.innerHTML = `
+    <option value="fr">Français (French)</option>
+    <option value="en">English</option>
+    <option value="es">Español (Spanish)</option>
+    <option value="de">Deutsch (German)</option>
+  `;
+  languageSelect.style.cssText = `
+    width: 100%;
+    padding: 12px 16px;
+    background: var(--yt-spec-10-percent-layer);
+    color: var(--yt-spec-text-primary);
+    border: 1px solid var(--yt-spec-10-percent-layer);
+    border-radius: 8px;
+    font-family: "Roboto", Arial, sans-serif;
+    font-size: 14px;
+    cursor: pointer;
+  `;
+
+  // Load saved language
+  chrome.storage.sync.get(['summaryLanguage'], (result) => {
+    if (result.summaryLanguage) {
+      languageSelect.value = result.summaryLanguage;
+    } else {
+      languageSelect.value = 'fr';
+    }
+  });
+
+  languageSection.appendChild(languageLabel);
+  languageSection.appendChild(languageSelect);
+
+  // Note
+  const note = document.createElement('div');
+  note.textContent = "Make sure you're on a YouTube video page with captions available.";
+  note.style.cssText = `
+    font-size: 14px;
+    color: var(--yt-spec-text-secondary);
+    font-family: "Roboto", Arial, sans-serif;
+    margin-bottom: 24px;
+    line-height: 1.4;
+  `;
+
+  // Save button
+  const saveBtn = document.createElement('button');
+  saveBtn.textContent = 'Save Settings';
+  saveBtn.style.cssText = `
+    width: 100%;
+    padding: 12px 20px;
+    background: #065fd4;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: "Roboto", Arial, sans-serif;
+    font-size: 16px;
+    font-weight: 500;
+  `;
+  saveBtn.onclick = async () => {
+    const apiKey = apiKeyInput.value.trim();
+    const language = languageSelect.value;
+
+    if (!apiKey) {
+      alert('Please enter an API key');
+      return;
+    }
+
+    if (!apiKey.startsWith('sk-')) {
+      alert('Invalid API key format. Should start with "sk-"');
+      return;
+    }
+
+    try {
+      await chrome.storage.sync.set({
+        openaiApiKey: apiKey,
+        summaryLanguage: language
+      });
+
+      // Show success feedback
+      saveBtn.textContent = 'Saved!';
+      saveBtn.style.background = '#28a745';
+      setTimeout(() => {
+        modal.remove();
+      }, 1000);
+    } catch (error) {
+      alert('Failed to save settings: ' + error.message);
+    }
+  };
+
+  modalContent.appendChild(title);
+  modalContent.appendChild(apiKeySection);
+  modalContent.appendChild(languageSection);
+  modalContent.appendChild(note);
+  modalContent.appendChild(saveBtn);
+  modal.appendChild(modalContent);
+
+  // Close on background click
+  modal.onclick = (e) => {
+    if (e.target === modal) {
+      modal.remove();
+    }
+  };
+
+  document.body.appendChild(modal);
+}
+
 // Create a custom dropdown button
-function createDropdownButton({ id, label, icon, options, onSelect }) {
+function createDropdownButton({ id, label, icon, options, onSelect, isRed = false }) {
   // Create container
   const container = document.createElement('div');
   container.style.cssText = `
@@ -577,8 +896,8 @@ function createDropdownButton({ id, label, icon, options, onSelect }) {
     display: flex;
     align-items: center;
     padding: 6px 10px;
-    background: var(--yt-spec-badge-chip-background);
-    color: var(--yt-spec-text-secondary);
+    background: ${isRed ? '#cc0000' : 'var(--yt-spec-badge-chip-background)'};
+    color: ${isRed ? 'white' : 'var(--yt-spec-text-secondary)'};
     border: none;
     border-radius: 18px;
     cursor: pointer;
@@ -670,11 +989,11 @@ function createDropdownButton({ id, label, icon, options, onSelect }) {
 
   // Hover effect
   button.addEventListener('mouseenter', () => {
-    button.style.background = 'rgba(255, 255, 255, 0.1)';
+    button.style.background = isRed ? '#b00000' : 'rgba(255, 255, 255, 0.1)';
   });
 
   button.addEventListener('mouseleave', () => {
-    button.style.background = 'var(--yt-spec-badge-chip-background)';
+    button.style.background = isRed ? '#cc0000' : 'var(--yt-spec-badge-chip-background)';
   });
 
   container.appendChild(button);
@@ -742,19 +1061,19 @@ function addDownloadButton() {
     return;
   }
 
-  // Wait for the video player container to be available
+  // Wait for the secondary sidebar to be available
   const checkPlayer = setInterval(() => {
-    // Find the primary column which contains the video
-    const primaryInner = document.querySelector('#primary-inner');
+    // Find the secondary column (right sidebar)
+    const secondary = document.querySelector('#secondary');
 
-    console.log('[Transcript Downloader] Looking for primary inner...', primaryInner);
+    console.log('[Transcript Downloader] Looking for secondary...', secondary);
 
-    if (primaryInner && !document.getElementById('transcript-download-container')) {
+    if (secondary && !document.getElementById('transcript-download-container')) {
       clearInterval(checkPlayer);
-      console.log('[Transcript Downloader] Primary inner found!');
+      console.log('[Transcript Downloader] Secondary found!');
 
       // Check if we already have our buttons
-      if (primaryInner.querySelector('#transcript-download-container')) {
+      if (secondary.querySelector('#transcript-download-container')) {
         console.log('[Transcript Downloader] Buttons already in DOM');
         return;
       }
@@ -783,7 +1102,7 @@ function addDownloadButton() {
         border: 1px solid var(--yt-spec-10-percent-layer) !important;
         border-radius: 12px;
         padding: 12px 16px;
-        margin: 12px 0;
+        margin: 0;
         display: flex !important;
         align-items: center;
         justify-content: space-between;
@@ -803,7 +1122,7 @@ function addDownloadButton() {
         visibility: visible !important;
       `;
 
-      // Create right side container (AI-powered summaries text)
+      // Create right side container (Settings button)
       const rightContainer = document.createElement('div');
       rightContainer.style.cssText = `
         display: flex !important;
@@ -812,21 +1131,38 @@ function addDownloadButton() {
         visibility: visible !important;
       `;
 
-      const titleText = document.createElement('span');
-      titleText.textContent = 'AI-powered summaries';
-      titleText.style.cssText = `
-        font-size: 12px;
-        font-weight: 400;
-        color: var(--yt-spec-text-secondary) !important;
-        font-family: "Roboto", Arial, sans-serif;
-        opacity: 1 !important;
-        visibility: visible !important;
-        display: inline-block !important;
+      const settingsBtn = document.createElement('button');
+      settingsBtn.id = 'transcript-settings-btn';
+      settingsBtn.innerHTML = `
+        <svg viewBox="0 0 24 24" style="width: 20px; height: 20px; fill: currentColor;">
+          <path d="M19.14,12.94C19.18,12.64 19.2,12.33 19.2,12C19.2,11.68 19.18,11.36 19.13,11.06L21.16,9.48C21.34,9.34 21.39,9.07 21.28,8.87L19.36,5.55C19.24,5.33 18.99,5.26 18.77,5.33L16.38,6.29C15.88,5.91 15.35,5.59 14.76,5.35L14.4,2.81C14.36,2.57 14.16,2.4 13.92,2.4H10.08C9.84,2.4 9.65,2.57 9.61,2.81L9.25,5.35C8.66,5.59 8.12,5.92 7.63,6.29L5.24,5.33C5.02,5.25 4.77,5.33 4.65,5.55L2.74,8.87C2.62,9.08 2.66,9.34 2.86,9.48L4.89,11.06C4.84,11.36 4.8,11.69 4.8,12C4.8,12.31 4.82,12.64 4.87,12.94L2.84,14.52C2.66,14.66 2.61,14.93 2.72,15.13L4.64,18.45C4.76,18.67 5.01,18.74 5.23,18.67L7.62,17.71C8.12,18.09 8.65,18.41 9.24,18.65L9.6,21.19C9.65,21.43 9.84,21.6 10.08,21.6H13.92C14.16,21.6 14.36,21.43 14.39,21.19L14.75,18.65C15.34,18.41 15.88,18.09 16.37,17.71L18.76,18.67C18.98,18.75 19.23,18.67 19.35,18.45L21.27,15.13C21.39,14.91 21.34,14.66 21.15,14.52L19.14,12.94M12,15.6C10.02,15.6 8.4,13.98 8.4,12C8.4,10.02 10.02,8.4 12,8.4C13.98,8.4 15.6,10.02 15.6,12C15.6,13.98 13.98,15.6 12,15.6Z"/>
+        </svg>
       `;
+      settingsBtn.style.cssText = `
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 8px;
+        background: transparent;
+        color: var(--yt-spec-text-secondary);
+        border: none;
+        border-radius: 50%;
+        cursor: pointer;
+        transition: background 0.1s;
+      `;
+      settingsBtn.addEventListener('mouseenter', () => {
+        settingsBtn.style.background = 'rgba(255, 255, 255, 0.1)';
+      });
+      settingsBtn.addEventListener('mouseleave', () => {
+        settingsBtn.style.background = 'transparent';
+      });
+      settingsBtn.onclick = () => {
+        showSettingsModal();
+      };
 
-      rightContainer.appendChild(titleText);
+      rightContainer.appendChild(settingsBtn);
 
-      // Create Summarize dropdown button with star
+      // Create Summarize dropdown button with star (red like YouTube logo)
       const summarizeDropdown = createDropdownButton({
         id: 'transcript-summarize-dropdown',
         label: 'Summarize',
@@ -840,7 +1176,8 @@ function addDownloadButton() {
           ],
         onSelect: async (value) => {
           await handleSummarize(true, value);
-        }
+        },
+        isRed: true
       });
 
       // Create Transcript dropdown button
@@ -907,16 +1244,8 @@ function addDownloadButton() {
       section.appendChild(leftContainer);
       section.appendChild(rightContainer);
 
-      // Insert the section after the player but before metadata
-      // Find the player container
-      const playerContainer = primaryInner.querySelector('#player');
-
-      if (playerContainer && playerContainer.nextSibling) {
-        primaryInner.insertBefore(section, playerContainer.nextSibling);
-      } else {
-        // Fallback: insert at the beginning of primary-inner
-        primaryInner.insertBefore(section, primaryInner.firstChild);
-      }
+      // Insert the section at the top of the secondary sidebar
+      secondary.insertBefore(section, secondary.firstChild);
 
       console.log('[Transcript Downloader] ✅ Buttons added successfully!');
     }
