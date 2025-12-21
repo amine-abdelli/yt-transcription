@@ -1102,7 +1102,7 @@ function addDownloadButton() {
         border: 1px solid var(--yt-spec-10-percent-layer) !important;
         border-radius: 12px;
         padding: 12px 16px;
-        margin: 0;
+        margin: 0 0 12px 0;
         display: flex !important;
         align-items: center;
         justify-content: space-between;
