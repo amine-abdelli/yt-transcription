@@ -99,6 +99,114 @@ async function findTranscriptButton() {
   return null;
 }
 
+// Handle fact-checking
+async function handleFactCheck() {
+  console.log('[Transcript Downloader] Starting fact check...');
+
+  // Get API key
+  const apiKey = await getApiKey();
+
+  if (!apiKey) {
+    alert('Please configure your OpenAI API key first!\n\nGo to the extension popup and enter your API key in the settings.');
+    return;
+  }
+
+  // Get the fact check button and show loading state
+  const factCheckBtn = document.getElementById('fact-check-btn');
+  if (factCheckBtn) {
+    const originalHTML = factCheckBtn.innerHTML;
+    const originalStyle = factCheckBtn.style.cssText;
+
+    factCheckBtn.disabled = true;
+    factCheckBtn.innerHTML = `
+      <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; fill: white; margin-right: 6px; animation: spin 1s linear infinite;">
+        <path d="M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z"/>
+      </svg>
+      Checking...
+    `;
+    factCheckBtn.style.cssText = originalStyle + 'opacity: 0.7; cursor: wait;';
+
+    try {
+      // Get the full transcript
+      const result = await getTranscript(false);
+
+      if (!result.success) {
+        throw new Error('Failed to get transcript: ' + result.error);
+      }
+
+      // Call OpenAI API to fact-check the transcript
+      const languagePreference = await getLanguagePreference();
+
+      const systemPrompt = languagePreference === 'fr'
+        ? 'You are a professional fact-checker. Analyze the video transcript and verify key claims, identify any potential misinformation, and provide a fact-check report in French.'
+        : 'You are a professional fact-checker. Analyze the video transcript and verify key claims, identify any potential misinformation, and provide a fact-check report in English.';
+
+      const userPrompt = languagePreference === 'fr'
+        ? `Analysez cette transcription vidéo et effectuez une vérification des faits. Pour chaque affirmation importante, indiquez si elle est vérifiable, correcte, douteuse ou nécessite plus de contexte. Format attendu:
+
+✓ [Affirmation correcte/vérifiable]
+⚠ [Affirmation nécessitant plus de contexte]
+✗ [Affirmation incorrecte ou douteuse]
+
+Transcription à vérifier:
+${result.transcript}`
+        : `Analyze this video transcript and perform a fact-check. For each important claim, indicate whether it is verifiable, correct, doubtful, or requires more context. Expected format:
+
+✓ [Correct/verifiable claim]
+⚠ [Claim requiring more context]
+✗ [Incorrect or doubtful claim]
+
+Transcript to fact-check:
+${result.transcript}`;
+
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+          temperature: 0.3,
+          max_tokens: 1500
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`API request failed with status ${response.status}`);
+      }
+
+      const data = await response.json();
+      const factCheckResult = data.choices[0]?.message?.content;
+
+      if (!factCheckResult) {
+        throw new Error('No fact-check result from API');
+      }
+
+      // Show fact-check result in an alert or modal
+      alert('Fact Check Results:\n\n' + factCheckResult);
+
+      // Restore button
+      factCheckBtn.disabled = false;
+      factCheckBtn.innerHTML = originalHTML;
+      factCheckBtn.style.cssText = originalStyle;
+
+    } catch (error) {
+      console.error('[Transcript Downloader] Fact check error:', error);
+      alert('Failed to perform fact check: ' + error.message);
+
+      // Restore button
+      factCheckBtn.disabled = false;
+      factCheckBtn.innerHTML = originalHTML;
+      factCheckBtn.style.cssText = originalStyle;
+    }
+  }
+}
+
 // Create and show summary modal
 function showSummaryModal(summary, summaryMode = 'detailed', isLoading = false) {
   // Remove existing modal if any
@@ -295,13 +403,53 @@ function showSummaryModal(summary, summaryMode = 'detailed', isLoading = false) 
     align-items: center;
   `;
 
-  const poweredBy = document.createElement('div');
-  poweredBy.textContent = 'Powered by AI SDK';
-  poweredBy.style.cssText = `
-    font-size: 12px;
-    color: var(--yt-spec-text-secondary);
-    font-family: "Roboto", Arial, sans-serif;
+  // Create fact check button container (replaces "Powered by AI SDK")
+  const factCheckContainer = document.createElement('div');
+  factCheckContainer.id = 'fact-check-container';
+  factCheckContainer.style.cssText = `
+    display: flex;
+    align-items: center;
+    gap: 8px;
   `;
+
+  // Always create enabled fact check button (unless loading)
+  if (!isLoading) {
+    const factCheckBtn = document.createElement('button');
+    factCheckBtn.id = 'fact-check-btn';
+    factCheckBtn.innerHTML = `
+      <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; fill: white; margin-right: 6px;">
+        <path d="M12,2C6.48,2 2,6.48 2,12C2,17.52 6.48,22 12,22C17.52,22 22,17.52 22,12C22,6.48 17.52,2 12,2M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M16.59,7.58L10,14.17L7.41,11.59L6,13L10,17L18,9L16.59,7.58Z"/>
+      </svg>
+      Fact Check
+    `;
+    factCheckBtn.style.cssText = `
+      padding: 8px 16px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 18px;
+      cursor: pointer;
+      font-family: "Roboto", Arial, sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+      transition: all 0.2s ease;
+    `;
+    factCheckBtn.onmouseenter = () => {
+      factCheckBtn.style.transform = 'translateY(-2px)';
+      factCheckBtn.style.boxShadow = '0 6px 16px rgba(102, 126, 234, 0.5)';
+    };
+    factCheckBtn.onmouseleave = () => {
+      factCheckBtn.style.transform = 'translateY(0)';
+      factCheckBtn.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.4)';
+    };
+    factCheckBtn.onclick = () => {
+      handleFactCheck();
+    };
+    factCheckContainer.appendChild(factCheckBtn);
+  }
 
   const buttonGroup = document.createElement('div');
   buttonGroup.id = 'modal-button-group';
@@ -435,7 +583,7 @@ function showSummaryModal(summary, summaryMode = 'detailed', isLoading = false) 
   };
   buttonGroup.appendChild(copyBtn);
 
-  footer.appendChild(poweredBy);
+  footer.appendChild(factCheckContainer);
   footer.appendChild(buttonGroup);
 
   modalContent.appendChild(header);
@@ -552,6 +700,49 @@ function updateModalWithSummary(summary, summaryMode) {
       }, 2000);
     };
   }
+
+  // Update fact check button container
+  const factCheckContainer = document.getElementById('fact-check-container');
+  if (factCheckContainer) {
+    factCheckContainer.innerHTML = ''; // Clear loading state
+
+    // Always create enabled fact check button
+    const factCheckBtn = document.createElement('button');
+    factCheckBtn.id = 'fact-check-btn';
+    factCheckBtn.innerHTML = `
+      <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; fill: white; margin-right: 6px;">
+        <path d="M12,2C6.48,2 2,6.48 2,12C2,17.52 6.48,22 12,22C17.52,22 22,17.52 22,12C22,6.48 17.52,2 12,2M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M16.59,7.58L10,14.17L7.41,11.59L6,13L10,17L18,9L16.59,7.58Z"/>
+      </svg>
+      Fact Check
+    `;
+    factCheckBtn.style.cssText = `
+      padding: 8px 16px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      border-radius: 18px;
+      cursor: pointer;
+      font-family: "Roboto", Arial, sans-serif;
+      font-size: 14px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+      transition: all 0.2s ease;
+    `;
+    factCheckBtn.onmouseenter = () => {
+      factCheckBtn.style.transform = 'translateY(-2px)';
+      factCheckBtn.style.boxShadow = '0 6px 16px rgba(102, 126, 234, 0.5)';
+    };
+    factCheckBtn.onmouseleave = () => {
+      factCheckBtn.style.transform = 'translateY(0)';
+      factCheckBtn.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.4)';
+    };
+    factCheckBtn.onclick = () => {
+      handleFactCheck();
+    };
+    factCheckContainer.appendChild(factCheckBtn);
+  }
 }
 
 // Show settings modal
@@ -617,78 +808,67 @@ function showSettingsModal() {
     color: var(--yt-spec-text-primary);
   `;
 
-  // Check if API key exists
-  let hasApiKey = false;
-  chrome.storage.sync.get(['openaiApiKey'], (result) => {
-    hasApiKey = !!result.openaiApiKey;
+  // Status box (shown when API key exists)
+  const statusBox = document.createElement('div');
+  statusBox.id = 'api-key-status-box';
+  statusBox.style.cssText = `
+    background: #d4edda;
+    border: 1px solid #c3e6cb;
+    border-radius: 8px;
+    padding: 16px;
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  `;
 
-    if (hasApiKey) {
-      // Show status box with checkmark
-      const statusBox = document.createElement('div');
-      statusBox.style.cssText = `
-        background: #d4edda;
-        border: 1px solid #c3e6cb;
-        border-radius: 8px;
-        padding: 16px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 12px;
-      `;
+  const statusContent = document.createElement('div');
+  statusContent.style.cssText = `
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  `;
 
-      const statusContent = document.createElement('div');
-      statusContent.style.cssText = `
-        display: flex;
-        align-items: center;
-        gap: 12px;
-      `;
+  const checkmark = document.createElement('span');
+  checkmark.innerHTML = '✓';
+  checkmark.style.cssText = `
+    color: #155724;
+    font-size: 24px;
+    font-weight: bold;
+  `;
 
-      const checkmark = document.createElement('span');
-      checkmark.innerHTML = '✓';
-      checkmark.style.cssText = `
-        color: #155724;
-        font-size: 24px;
-        font-weight: bold;
-      `;
+  const statusText = document.createElement('span');
+  statusText.textContent = 'API Key configured';
+  statusText.style.cssText = `
+    color: #155724;
+    font-size: 16px;
+    font-family: "Roboto", Arial, sans-serif;
+  `;
 
-      const statusText = document.createElement('span');
-      statusText.textContent = 'API Key configured';
-      statusText.style.cssText = `
-        color: #155724;
-        font-size: 16px;
-        font-family: "Roboto", Arial, sans-serif;
-      `;
+  const modifyBtn = document.createElement('button');
+  modifyBtn.textContent = 'Modify';
+  modifyBtn.style.cssText = `
+    padding: 8px 20px;
+    background: #007bff;
+    color: white;
+    border: none;
+    border-radius: 18px;
+    cursor: pointer;
+    font-family: "Roboto", Arial, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+  `;
 
-      const modifyBtn = document.createElement('button');
-      modifyBtn.textContent = 'Modify';
-      modifyBtn.style.cssText = `
-        padding: 8px 20px;
-        background: #007bff;
-        color: white;
-        border: none;
-        border-radius: 18px;
-        cursor: pointer;
-        font-family: "Roboto", Arial, sans-serif;
-        font-size: 14px;
-        font-weight: 500;
-      `;
-      modifyBtn.onclick = () => {
-        statusBox.style.display = 'none';
-        inputGroup.style.display = 'flex';
-      };
+  statusContent.appendChild(checkmark);
+  statusContent.appendChild(statusText);
+  statusBox.appendChild(statusContent);
+  statusBox.appendChild(modifyBtn);
 
-      statusContent.appendChild(checkmark);
-      statusContent.appendChild(statusText);
-      statusBox.appendChild(statusContent);
-      statusBox.appendChild(modifyBtn);
-
-      apiKeySection.appendChild(statusBox);
-    }
-  });
-
+  // Input group (shown when adding/modifying API key)
   const inputGroup = document.createElement('div');
+  inputGroup.id = 'api-key-input-group';
   inputGroup.style.cssText = `
-    display: ${hasApiKey ? 'none' : 'flex'};
+    display: flex;
     gap: 8px;
     margin-bottom: 12px;
   `;
@@ -696,6 +876,7 @@ function showSettingsModal() {
   const apiKeyInput = document.createElement('input');
   apiKeyInput.type = 'password';
   apiKeyInput.placeholder = 'sk-...';
+  apiKeyInput.autocomplete = 'off';
   apiKeyInput.style.cssText = `
     flex: 1;
     padding: 12px 16px;
@@ -707,15 +888,9 @@ function showSettingsModal() {
     font-size: 14px;
   `;
 
-  // Load existing API key
-  chrome.storage.sync.get(['openaiApiKey'], (result) => {
-    if (result.openaiApiKey) {
-      apiKeyInput.value = result.openaiApiKey;
-    }
-  });
-
   const toggleVisibilityBtn = document.createElement('button');
   toggleVisibilityBtn.innerHTML = '👁️';
+  toggleVisibilityBtn.title = 'Show/Hide API Key';
   toggleVisibilityBtn.style.cssText = `
     padding: 12px 16px;
     background: var(--yt-spec-10-percent-layer);
@@ -738,6 +913,24 @@ function showSettingsModal() {
   inputGroup.appendChild(apiKeyInput);
   inputGroup.appendChild(toggleVisibilityBtn);
 
+  // Save button (shown only when input group is visible)
+  const saveApiKeyBtn = document.createElement('button');
+  saveApiKeyBtn.id = 'save-api-key-btn';
+  saveApiKeyBtn.textContent = 'Save API Key';
+  saveApiKeyBtn.style.cssText = `
+    width: 100%;
+    padding: 10px 16px;
+    background: #065fd4;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: "Roboto", Arial, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    margin-bottom: 12px;
+  `;
+
   const apiKeyHelp = document.createElement('div');
   apiKeyHelp.innerHTML = 'Get your API key from <a href="https://platform.openai.com/api-keys" target="_blank" style="color: #065fd4;">OpenAI</a>. Your key is stored locally and never shared.';
   apiKeyHelp.style.cssText = `
@@ -748,8 +941,67 @@ function showSettingsModal() {
   `;
 
   apiKeySection.appendChild(apiKeyLabel);
+  apiKeySection.appendChild(statusBox);
   apiKeySection.appendChild(inputGroup);
+  apiKeySection.appendChild(saveApiKeyBtn);
   apiKeySection.appendChild(apiKeyHelp);
+
+  // Check if API key exists and update UI accordingly
+  chrome.storage.sync.get(['openaiApiKey'], (result) => {
+    if (result.openaiApiKey) {
+      statusBox.style.display = 'flex';
+      inputGroup.style.display = 'none';
+      saveApiKeyBtn.style.display = 'none';
+      apiKeyInput.value = result.openaiApiKey;
+    } else {
+      statusBox.style.display = 'none';
+      inputGroup.style.display = 'flex';
+      saveApiKeyBtn.style.display = 'block';
+    }
+  });
+
+  // Modify button click handler
+  modifyBtn.onclick = () => {
+    statusBox.style.display = 'none';
+    inputGroup.style.display = 'flex';
+    saveApiKeyBtn.style.display = 'block';
+    apiKeyInput.focus();
+  };
+
+  // Save API Key button handler
+  saveApiKeyBtn.onclick = async () => {
+    const apiKey = apiKeyInput.value.trim();
+
+    if (!apiKey) {
+      alert('Please enter an API key');
+      return;
+    }
+
+    if (!apiKey.startsWith('sk-')) {
+      alert('Invalid API key format. Should start with "sk-"');
+      return;
+    }
+
+    try {
+      await chrome.storage.sync.set({ openaiApiKey: apiKey });
+
+      // Update UI to show status box
+      statusBox.style.display = 'flex';
+      inputGroup.style.display = 'none';
+      saveApiKeyBtn.style.display = 'none';
+
+      // Show success feedback
+      const originalText = saveApiKeyBtn.textContent;
+      saveApiKeyBtn.textContent = 'Saved!';
+      saveApiKeyBtn.style.background = '#28a745';
+      setTimeout(() => {
+        saveApiKeyBtn.textContent = originalText;
+        saveApiKeyBtn.style.background = '#065fd4';
+      }, 2000);
+    } catch (error) {
+      alert('Failed to save API key: ' + error.message);
+    }
+  };
 
   // Language Section
   const languageSection = document.createElement('div');
@@ -810,57 +1062,39 @@ function showSettingsModal() {
     line-height: 1.4;
   `;
 
-  // Save button
-  const saveBtn = document.createElement('button');
-  saveBtn.textContent = 'Save Settings';
-  saveBtn.style.cssText = `
+  // Close button at bottom
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = 'Close';
+  closeBtn.style.cssText = `
     width: 100%;
     padding: 12px 20px;
-    background: #065fd4;
-    color: white;
-    border: none;
+    background: transparent;
+    color: var(--yt-spec-text-primary);
+    border: 1px solid var(--yt-spec-10-percent-layer);
     border-radius: 8px;
     cursor: pointer;
     font-family: "Roboto", Arial, sans-serif;
     font-size: 16px;
     font-weight: 500;
   `;
-  saveBtn.onclick = async () => {
-    const apiKey = apiKeyInput.value.trim();
-    const language = languageSelect.value;
-
-    if (!apiKey) {
-      alert('Please enter an API key');
-      return;
-    }
-
-    if (!apiKey.startsWith('sk-')) {
-      alert('Invalid API key format. Should start with "sk-"');
-      return;
-    }
-
-    try {
-      await chrome.storage.sync.set({
-        openaiApiKey: apiKey,
-        summaryLanguage: language
-      });
-
-      // Show success feedback
-      saveBtn.textContent = 'Saved!';
-      saveBtn.style.background = '#28a745';
-      setTimeout(() => {
-        modal.remove();
-      }, 1000);
-    } catch (error) {
-      alert('Failed to save settings: ' + error.message);
-    }
+  closeBtn.onclick = () => {
+    modal.remove();
   };
 
   modalContent.appendChild(title);
   modalContent.appendChild(apiKeySection);
   modalContent.appendChild(languageSection);
   modalContent.appendChild(note);
-  modalContent.appendChild(saveBtn);
+  modalContent.appendChild(closeBtn);
+
+  // Auto-save language preference when changed
+  languageSelect.onchange = async () => {
+    try {
+      await chrome.storage.sync.set({ summaryLanguage: languageSelect.value });
+    } catch (error) {
+      console.error('Failed to save language preference:', error);
+    }
+  };
   modal.appendChild(modalContent);
 
   // Close on background click
@@ -899,7 +1133,7 @@ function createDropdownButton({ id, label, icon, options, onSelect, isRed = fals
     background: ${isRed ? '#cc0000' : 'var(--yt-spec-badge-chip-background)'};
     color: ${isRed ? 'white' : 'var(--yt-spec-text-secondary)'};
     border: none;
-    border-radius: 18px;
+    border-radius: 8px;
     cursor: pointer;
     font-family: "Roboto", Arial, sans-serif;
     font-size: 12px;
@@ -989,7 +1223,7 @@ function createDropdownButton({ id, label, icon, options, onSelect, isRed = fals
 
   // Hover effect
   button.addEventListener('mouseenter', () => {
-    button.style.background = isRed ? '#b00000' : 'rgba(255, 255, 255, 0.1)';
+    button.style.background = isRed ? '#b00000' : 'rgba(0, 0, 0, 0.15)';
   });
 
   button.addEventListener('mouseleave', () => {
@@ -1101,8 +1335,8 @@ function addDownloadButton() {
         background: var(--yt-spec-base-background) !important;
         border: 1px solid var(--yt-spec-10-percent-layer) !important;
         border-radius: 12px;
-        padding: 12px 16px;
-        margin: 0 0 12px 0;
+        padding: 6px 8px;
+        margin: 0 0 6px 0;
         display: flex !important;
         align-items: center;
         justify-content: space-between;
@@ -1162,12 +1396,13 @@ function addDownloadButton() {
 
       rightContainer.appendChild(settingsBtn);
 
-      // Create Summarize dropdown button with star (red like YouTube logo)
+      // Create Summarize dropdown button with AI robot icon (red like YouTube logo)
       const summarizeDropdown = createDropdownButton({
         id: 'transcript-summarize-dropdown',
-        label: 'Summarize',
-        icon: `<svg viewBox="0 0 24 24" style="width: 16px; height: 16px; fill: currentColor;">
-          <path d="M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z"/>
+        label: '',
+        icon: `<svg viewBox="0 0 16 16" style="width: 16px; height: 16px; stroke: currentColor; fill: none;" xmlns="http://www.w3.org/2000/svg" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5">
+          <rect height="7.5" width="12.5" y="5.75" x="1.75"></rect>
+          <path d="m10.75 8.75v1.5m-5.5-1.5v1.5m-.5-7.5 3.25 3 3.25-3"></path>
         </svg>`,
           options: [
             { value: 'detailed', label: 'Detailed summary', description: 'Comprehensive overview' },
