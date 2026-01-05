@@ -1121,7 +1121,7 @@ function createDropdownButton({ id, label, icon, options, onSelect, isRed = fals
   button.id = id;
   button.innerHTML = `
     ${icon}
-    <span style="margin: 0 4px;">${label}</span>
+    <span style="margin: 0;">${label}</span>
     <svg viewBox="0 0 24 24" style="width: 12px; height: 12px; fill: currentColor;">
       <path d="M7,10L12,15L17,10H7Z"/>
     </svg>
