@@ -1,6 +1,152 @@
 // OpenAI API integration for video transcript summarization
 
 /**
+ * Convert a timestamp string (e.g., "1:45", "10:30", "1:05:30") to seconds
+ * @param {string|number} timestamp - The timestamp to convert
+ * @returns {number|null} The timestamp in seconds, or null if invalid
+ */
+function timestampToSeconds(timestamp) {
+    // If already a number, return it
+    if (typeof timestamp === 'number') {
+        return timestamp;
+    }
+
+    // If not a string, return null
+    if (typeof timestamp !== 'string') {
+        return null;
+    }
+
+    // Remove brackets if present [1:45] -> 1:45
+    timestamp = timestamp.replace(/[\[\]]/g, '').trim();
+
+    // Split by colon
+    const parts = timestamp.split(':').map(p => parseInt(p, 10));
+
+    if (parts.some(isNaN)) {
+        return null;
+    }
+
+    if (parts.length === 2) {
+        // MM:SS format
+        const [minutes, seconds] = parts;
+        return minutes * 60 + seconds;
+    } else if (parts.length === 3) {
+        // H:MM:SS format
+        const [hours, minutes, seconds] = parts;
+        return hours * 3600 + minutes * 60 + seconds;
+    }
+
+    return null;
+}
+
+/**
+ * Detect sponsor segments in a transcript with timestamps
+ * @param {string} transcript - The video transcript with timestamps (format: [MM:SS] text)
+ * @param {string} apiKey - OpenAI API key
+ * @returns {Promise<{success: boolean, segments?: Array<{start: number, end: number}>, error?: string}>}
+ */
+async function detectSponsorSegments(transcript, apiKey) {
+    try {
+        if (!apiKey) {
+            throw new Error('OpenAI API key is required.');
+        }
+
+        if (!transcript || transcript.trim().length === 0) {
+            throw new Error('Transcript is empty.');
+        }
+
+        console.log('[OpenAI] Detecting sponsor segments...');
+        console.log('[OpenAI] Transcript preview:', transcript.substring(0, 500));
+
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+                model: 'gpt-4o-mini',
+                messages: [{
+                    role: 'system',
+                    content: `You detect sponsor segments in YouTube transcripts. The transcript may be in ANY language.
+
+Each line starts with a timestamp like [0:30] or [5:45] or [12:03].
+
+SPONSOR INDICATORS:
+
+ENGLISH: "sponsored by", "thanks to [brand]", "use code", "link in description", "check out"
+FRENCH: "sponsorisé par", "partenaire", "en partenariat avec", "grâce à", "code promo", "lien en description", "n'hésitez pas", "avec le code"
+SPANISH: "patrocinado por", "usa el código", "enlace en la descripción"
+GERMAN: "gesponsert von", "benutzt den Code", "Link in der Beschreibung"
+
+BRANDS: NordVPN, ExpressVPN, Surfshark, Skillshare, Audible, Squarespace, HelloFresh, Raycon, Ridge, Manscaped, BetterHelp, Honey, Opera GX, Raid Shadow Legends, etc.
+
+END INDICATORS:
+ENGLISH: "anyway", "back to", "moving on", "alright so", "now let's"
+FRENCH: "bref", "du coup", "donc voilà", "on reprend", "passons à", "en tout cas", "allez on continue"
+
+RULES:
+1. Find the EXACT timestamp where sponsor STARTS (first mention of brand/sponsor)
+2. Find the EXACT timestamp where they RETURN to main content
+3. Copy timestamps EXACTLY as they appear in the transcript (e.g., "1:45", "10:30")
+4. Be conservative: shorter is better than too long
+
+OUTPUT FORMAT - Return timestamps as strings, exactly as in transcript:
+[{"start": "1:45", "end": "2:30"}]
+No sponsors: []`
+                },
+                {
+                    role: 'user',
+                    content: `Find sponsor segments. Return timestamps exactly as they appear in the transcript.
+
+${transcript}
+
+JSON:`
+                }],
+                temperature: 0.1,
+                max_tokens: 500
+            })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error?.message || `API request failed with status ${response.status}`);
+        }
+
+        const data = await response.json();
+        const content = data.choices[0]?.message?.content?.trim();
+
+        if (!content) {
+            return { success: true, segments: [] };
+        }
+
+        // Parse JSON response and convert timestamps to seconds
+        try {
+            const rawSegments = JSON.parse(content);
+            if (Array.isArray(rawSegments)) {
+                // Convert timestamp strings to seconds
+                const segments = rawSegments.map(seg => ({
+                    start: timestampToSeconds(seg.start),
+                    end: timestampToSeconds(seg.end)
+                })).filter(seg => seg.start !== null && seg.end !== null && seg.end > seg.start);
+
+                console.log('[OpenAI] Raw segments from AI:', rawSegments);
+                console.log('[OpenAI] Converted segments (seconds):', segments);
+                return { success: true, segments };
+            }
+            return { success: true, segments: [] };
+        } catch (parseError) {
+            console.warn('[OpenAI] Could not parse segments:', content);
+            return { success: true, segments: [] };
+        }
+
+    } catch (error) {
+        console.error('[OpenAI] Error detecting sponsors:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+/**
  * Generate a summary of the transcript using OpenAI API
  * @param {string} transcript - The video transcript text
  * @param {string} apiKey - OpenAI API key
@@ -22,11 +168,15 @@ async function generateSummary(transcript, apiKey, summaryMode = 'detailed') {
         // Get language preference
         const languagePreference = await getLanguagePreference();
 
+        // Get sponsor filter preference
+        const filterSponsors = await getSponsorFilterPreference();
+        console.log(`[OpenAI Summary] Sponsor filter: ${filterSponsors ? 'enabled' : 'disabled'}`);
+
         // Map summaryMode to output format
         const outputFormat = summaryMode === 'express' ? 'SHORT' :
                             summaryMode === 'bullets' ? 'BULLET POINTS' : 'DETAILED';
 
-        const config = getSummaryConfig(languagePreference);
+        const config = getSummaryConfig(languagePreference, filterSponsors);
 
         const response = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
@@ -119,16 +269,92 @@ async function getLanguagePreference() {
 }
 
 /**
+ * Get the sponsor filtering preference
+ * @returns {Promise<boolean>}
+ */
+async function getSponsorFilterPreference() {
+    return new Promise((resolve) => {
+        chrome.storage.sync.get(['filterSponsors'], (result) => {
+            resolve(result.filterSponsors !== false); // Default to true (enabled)
+        });
+    });
+}
+
+/**
  * Get summary configuration with the comprehensive prompt
  * @param {string} language - Language code (fr, en, de, es)
+ * @param {boolean} filterSponsors - Whether to filter sponsor content
  * @returns {object} Configuration object with system and user prompts
  */
-function getSummaryConfig(language) {
+function getSummaryConfig(language, filterSponsors = true) {
     const languageInstructions = {
         fr: 'Always respond in French.',
         en: 'Always respond in English.',
         de: 'Always respond in German.',
         es: 'Always respond in Spanish.'
+    };
+
+    const sponsorFilterInstructions = {
+        en: `
+------------------------------------
+SPONSOR SEGMENT HANDLING
+------------------------------------
+IMPORTANT: IGNORE and DO NOT include any sponsor segments, promotional content, or paid partnerships in your summary.
+Sponsor segments typically include:
+- Product promotions (NordVPN, Skillshare, Audible, Squarespace, etc.)
+- Discount codes and "use my code" mentions
+- Affiliate links and "link in description" promotions
+- Sponsored messages and paid partnerships
+- Self-promotions for merchandise or Patreon
+
+Focus ONLY on the actual educational/entertainment content of the video.
+Do NOT mention that you skipped sponsor content.
+`,
+        fr: `
+------------------------------------
+GESTION DES SEGMENTS SPONSORISÉS
+------------------------------------
+IMPORTANT: IGNOREZ et N'INCLUEZ PAS les segments sponsorisés, le contenu promotionnel ou les partenariats payants dans votre résumé.
+Les segments sponsorisés comprennent généralement:
+- Promotions de produits (NordVPN, Skillshare, Audible, Squarespace, etc.)
+- Codes promo et mentions "utilisez mon code"
+- Liens affiliés et promotions "lien en description"
+- Messages sponsorisés et partenariats payants
+- Auto-promotions pour le merchandising ou Patreon
+
+Concentrez-vous UNIQUEMENT sur le contenu éducatif/divertissant réel de la vidéo.
+Ne mentionnez PAS que vous avez ignoré le contenu sponsorisé.
+`,
+        de: `
+------------------------------------
+UMGANG MIT SPONSOR-SEGMENTEN
+------------------------------------
+WICHTIG: IGNORIEREN Sie Sponsor-Segmente, Werbeinhalte oder bezahlte Partnerschaften in Ihrer Zusammenfassung.
+Sponsor-Segmente umfassen typischerweise:
+- Produktwerbung (NordVPN, Skillshare, Audible, Squarespace, etc.)
+- Rabattcodes und "benutzt meinen Code" Erwähnungen
+- Affiliate-Links und "Link in der Beschreibung" Promotionen
+- Gesponserte Nachrichten und bezahlte Partnerschaften
+- Eigenwerbung für Merchandise oder Patreon
+
+Konzentrieren Sie sich NUR auf den tatsächlichen Bildungs-/Unterhaltungsinhalt des Videos.
+Erwähnen Sie NICHT, dass Sie gesponserte Inhalte übersprungen haben.
+`,
+        es: `
+------------------------------------
+MANEJO DE SEGMENTOS PATROCINADOS
+------------------------------------
+IMPORTANTE: IGNORE y NO INCLUYA segmentos patrocinados, contenido promocional o asociaciones pagas en su resumen.
+Los segmentos patrocinados típicamente incluyen:
+- Promociones de productos (NordVPN, Skillshare, Audible, Squarespace, etc.)
+- Códigos de descuento y menciones de "usa mi código"
+- Enlaces de afiliados y promociones de "enlace en la descripción"
+- Mensajes patrocinados y asociaciones pagas
+- Auto-promociones de merchandising o Patreon
+
+Concéntrese SOLO en el contenido educativo/de entretenimiento real del video.
+NO mencione que omitió contenido patrocinado.
+`
     };
 
     // Translated template labels for each language
@@ -385,6 +611,9 @@ function getSummaryConfig(language) {
 
     const t = templates[language] || templates.fr;
     const langInstruction = languageInstructions[language] || languageInstructions.fr;
+    const sponsorInstruction = filterSponsors
+        ? (sponsorFilterInstructions[language] || sponsorFilterInstructions.en)
+        : '';
 
     const systemPrompt = `You are an expert content analyst and summarizer. ${langInstruction}`;
 
@@ -656,7 +885,7 @@ QUALITY REQUIREMENTS
 - Prioritize clarity, usefulness, and memory retention
 - If transcript is messy, clean and organize the ideas
 - ALWAYS match the template structure for DETAILED mode
-
+${sponsorInstruction}
 ------------------------------------
 INPUT
 ------------------------------------
