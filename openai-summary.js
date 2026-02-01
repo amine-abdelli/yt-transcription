@@ -56,7 +56,8 @@ async function detectSponsorSegments(transcript, apiKey) {
         }
 
         console.log('[OpenAI] Detecting sponsor segments...');
-        console.log('[OpenAI] Transcript preview:', transcript.substring(0, 500));
+        console.log('[OpenAI] Transcript length:', transcript.length);
+        console.log('[OpenAI] Transcript preview:', transcript.substring(0, 800));
 
         const response = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
@@ -65,64 +66,82 @@ async function detectSponsorSegments(transcript, apiKey) {
                 'Authorization': `Bearer ${apiKey}`
             },
             body: JSON.stringify({
-                model: 'gpt-4o-mini',
+                model: 'gpt-4o',
                 messages: [{
                     role: 'system',
-                    content: `You detect sponsor segments in YouTube transcripts. The transcript may be in ANY language.
+                    content: `You are a sponsor segment detector for YouTube videos. Your task is to find paid promotional segments in video transcripts.
 
-Each line starts with a timestamp like [0:30] or [5:45] or [12:03].
+The transcript has timestamps in format [MM:SS] or [H:MM:SS] at the start of lines.
 
-SPONSOR INDICATORS:
+WHAT TO DETECT (paid promotions / sponsors):
+- Brand mentions with promotional language: "This video is sponsored by...", "Thanks to X for sponsoring..."
+- Discount codes: "Use code...", "avec le code...", "code promo..."
+- Call-to-action for sponsors: "Check out the link...", "lien en description..."
+- Common sponsor brands: NordVPN, ExpressVPN, Surfshark, Skillshare, Audible, Squarespace, HelloFresh, Raycon, Ridge, Manscaped, BetterHelp, Honey, Opera GX, Raid Shadow Legends, Athletic Greens, AG1, Dollar Shave Club, etc.
 
-ENGLISH: "sponsored by", "thanks to [brand]", "use code", "link in description", "check out"
-FRENCH: "sponsorisé par", "partenaire", "en partenariat avec", "grâce à", "code promo", "lien en description", "n'hésitez pas", "avec le code"
-SPANISH: "patrocinado por", "usa el código", "enlace en la descripción"
-GERMAN: "gesponsert von", "benutzt den Code", "Link in der Beschreibung"
+MULTILINGUAL INDICATORS:
+- EN: "sponsored by", "thanks to [brand] for", "use my code", "link in description", "check out", "free trial"
+- FR: "sponsorisé par", "partenaire", "en partenariat avec", "grâce à", "code promo", "lien en description", "n'hésitez pas à", "merci à [brand]", "cette vidéo est présentée par"
+- ES: "patrocinado por", "gracias a", "usa el código", "enlace en la descripción"
+- DE: "gesponsert von", "dank", "benutzt den Code", "Link in der Beschreibung"
 
-BRANDS: NordVPN, ExpressVPN, Surfshark, Skillshare, Audible, Squarespace, HelloFresh, Raycon, Ridge, Manscaped, BetterHelp, Honey, Opera GX, Raid Shadow Legends, etc.
+HOW TO FIND THE END OF SPONSOR:
+- Transition words: "anyway", "back to", "moving on", "alright so", "now let's", "bref", "du coup", "donc voilà", "bon", "allez", "revenons à"
+- Topic change: when they return to the main video topic
+- Usually sponsors last 30 seconds to 2 minutes MAX
 
-END INDICATORS:
-ENGLISH: "anyway", "back to", "moving on", "alright so", "now let's"
-FRENCH: "bref", "du coup", "donc voilà", "on reprend", "passons à", "en tout cas", "allez on continue"
+IMPORTANT RULES:
+1. Return the EXACT timestamps as they appear in the transcript
+2. Sponsor segments are typically 30s-90s, rarely over 2 minutes
+3. If unsure, be conservative (shorter segment or skip)
+4. ONLY detect actual paid promotions, NOT regular product discussions
 
-RULES:
-1. Find the EXACT timestamp where sponsor STARTS (first mention of brand/sponsor)
-2. Find the EXACT timestamp where they RETURN to main content
-3. Copy timestamps EXACTLY as they appear in the transcript (e.g., "1:45", "10:30")
-4. Be conservative: shorter is better than too long
-
-OUTPUT FORMAT - Return timestamps as strings, exactly as in transcript:
-[{"start": "1:45", "end": "2:30"}]
-No sponsors: []`
+OUTPUT: Return ONLY a JSON array, no other text.
+Format: [{"start": "1:45", "end": "2:30"}]
+If no sponsors found: []`
                 },
                 {
                     role: 'user',
-                    content: `Find sponsor segments. Return timestamps exactly as they appear in the transcript.
+                    content: `Analyze this transcript and find sponsor segments. Return ONLY the JSON array.
 
+TRANSCRIPT:
 ${transcript}
 
 JSON:`
                 }],
-                temperature: 0.1,
+                temperature: 0,
                 max_tokens: 500
             })
         });
 
         if (!response.ok) {
             const errorData = await response.json();
+            console.error('[OpenAI] API Error:', errorData);
             throw new Error(errorData.error?.message || `API request failed with status ${response.status}`);
         }
 
         const data = await response.json();
         const content = data.choices[0]?.message?.content?.trim();
 
+        console.log('[OpenAI] Raw AI response:', content);
+
         if (!content) {
+            console.log('[OpenAI] Empty response from AI');
             return { success: true, segments: [] };
+        }
+
+        // Extract JSON from response (handle cases where AI adds text around it)
+        let jsonStr = content;
+        const jsonMatch = content.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+            jsonStr = jsonMatch[0];
         }
 
         // Parse JSON response and convert timestamps to seconds
         try {
-            const rawSegments = JSON.parse(content);
+            const rawSegments = JSON.parse(jsonStr);
+            console.log('[OpenAI] Parsed segments:', rawSegments);
+
             if (Array.isArray(rawSegments)) {
                 // Convert timestamp strings to seconds
                 const segments = rawSegments.map(seg => ({
@@ -130,13 +149,24 @@ JSON:`
                     end: timestampToSeconds(seg.end)
                 })).filter(seg => seg.start !== null && seg.end !== null && seg.end > seg.start);
 
-                console.log('[OpenAI] Raw segments from AI:', rawSegments);
                 console.log('[OpenAI] Converted segments (seconds):', segments);
-                return { success: true, segments };
+
+                // Validate: sponsor segments should be reasonable (< 3 minutes typically)
+                const validSegments = segments.filter(seg => {
+                    const duration = seg.end - seg.start;
+                    if (duration > 180) { // More than 3 minutes is suspicious
+                        console.warn('[OpenAI] Skipping suspicious segment (too long):', seg, 'duration:', duration);
+                        return false;
+                    }
+                    return true;
+                });
+
+                return { success: true, segments: validSegments };
             }
             return { success: true, segments: [] };
         } catch (parseError) {
             console.warn('[OpenAI] Could not parse segments:', content);
+            console.warn('[OpenAI] Parse error:', parseError);
             return { success: true, segments: [] };
         }
 
