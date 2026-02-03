@@ -1,6 +1,182 @@
 // OpenAI API integration for video transcript summarization
 
 /**
+ * Convert a timestamp string (e.g., "1:45", "10:30", "1:05:30") to seconds
+ * @param {string|number} timestamp - The timestamp to convert
+ * @returns {number|null} The timestamp in seconds, or null if invalid
+ */
+function timestampToSeconds(timestamp) {
+    // If already a number, return it
+    if (typeof timestamp === 'number') {
+        return timestamp;
+    }
+
+    // If not a string, return null
+    if (typeof timestamp !== 'string') {
+        return null;
+    }
+
+    // Remove brackets if present [1:45] -> 1:45
+    timestamp = timestamp.replace(/[\[\]]/g, '').trim();
+
+    // Split by colon
+    const parts = timestamp.split(':').map(p => parseInt(p, 10));
+
+    if (parts.some(isNaN)) {
+        return null;
+    }
+
+    if (parts.length === 2) {
+        // MM:SS format
+        const [minutes, seconds] = parts;
+        return minutes * 60 + seconds;
+    } else if (parts.length === 3) {
+        // H:MM:SS format
+        const [hours, minutes, seconds] = parts;
+        return hours * 3600 + minutes * 60 + seconds;
+    }
+
+    return null;
+}
+
+/**
+ * Detect sponsor segments in a transcript with timestamps
+ * @param {string} transcript - The video transcript with timestamps (format: [MM:SS] text)
+ * @param {string} apiKey - OpenAI API key
+ * @returns {Promise<{success: boolean, segments?: Array<{start: number, end: number}>, error?: string}>}
+ */
+async function detectSponsorSegments(transcript, apiKey) {
+    try {
+        if (!apiKey) {
+            throw new Error('OpenAI API key is required.');
+        }
+
+        if (!transcript || transcript.trim().length === 0) {
+            throw new Error('Transcript is empty.');
+        }
+
+        console.log('[OpenAI] Detecting sponsor segments...');
+        console.log('[OpenAI] Transcript length:', transcript.length);
+        console.log('[OpenAI] Transcript preview:', transcript.substring(0, 800));
+
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+                model: 'gpt-4o',
+                messages: [{
+                    role: 'system',
+                    content: `You are a sponsor segment detector for YouTube videos. Your task is to find paid promotional segments in video transcripts.
+
+The transcript has timestamps in format [MM:SS] or [H:MM:SS] at the start of lines.
+
+WHAT TO DETECT (paid promotions / sponsors):
+- Brand mentions with promotional language: "This video is sponsored by...", "Thanks to X for sponsoring..."
+- Discount codes: "Use code...", "avec le code...", "code promo..."
+- Call-to-action for sponsors: "Check out the link...", "lien en description..."
+- Common sponsor brands: NordVPN, ExpressVPN, Surfshark, Skillshare, Audible, Squarespace, HelloFresh, Raycon, Ridge, Manscaped, BetterHelp, Honey, Opera GX, Raid Shadow Legends, Athletic Greens, AG1, Dollar Shave Club, etc.
+
+MULTILINGUAL INDICATORS:
+- EN: "sponsored by", "thanks to [brand] for", "use my code", "link in description", "check out", "free trial"
+- FR: "sponsorisé par", "partenaire", "en partenariat avec", "grâce à", "code promo", "lien en description", "n'hésitez pas à", "merci à [brand]", "cette vidéo est présentée par"
+- ES: "patrocinado por", "gracias a", "usa el código", "enlace en la descripción"
+- DE: "gesponsert von", "dank", "benutzt den Code", "Link in der Beschreibung"
+
+HOW TO FIND THE END OF SPONSOR:
+- Transition words: "anyway", "back to", "moving on", "alright so", "now let's", "bref", "du coup", "donc voilà", "bon", "allez", "revenons à"
+- Topic change: when they return to the main video topic
+- Usually sponsors last 30 seconds to 2 minutes MAX
+
+IMPORTANT RULES:
+1. Return the EXACT timestamps as they appear in the transcript
+2. Sponsor segments are typically 30s-90s, rarely over 2 minutes
+3. If unsure, be conservative (shorter segment or skip)
+4. ONLY detect actual paid promotions, NOT regular product discussions
+
+OUTPUT: Return ONLY a JSON array, no other text.
+Format: [{"start": "1:45", "end": "2:30"}]
+If no sponsors found: []`
+                },
+                {
+                    role: 'user',
+                    content: `Analyze this transcript and find sponsor segments. Return ONLY the JSON array.
+
+TRANSCRIPT:
+${transcript}
+
+JSON:`
+                }],
+                temperature: 0,
+                max_tokens: 500
+            })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            console.error('[OpenAI] API Error:', errorData);
+            throw new Error(errorData.error?.message || `API request failed with status ${response.status}`);
+        }
+
+        const data = await response.json();
+        const content = data.choices[0]?.message?.content?.trim();
+
+        console.log('[OpenAI] Raw AI response:', content);
+
+        if (!content) {
+            console.log('[OpenAI] Empty response from AI');
+            return { success: true, segments: [] };
+        }
+
+        // Extract JSON from response (handle cases where AI adds text around it)
+        let jsonStr = content;
+        const jsonMatch = content.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+            jsonStr = jsonMatch[0];
+        }
+
+        // Parse JSON response and convert timestamps to seconds
+        try {
+            const rawSegments = JSON.parse(jsonStr);
+            console.log('[OpenAI] Parsed segments:', rawSegments);
+
+            if (Array.isArray(rawSegments)) {
+                // Convert timestamp strings to seconds
+                const segments = rawSegments.map(seg => ({
+                    start: timestampToSeconds(seg.start),
+                    end: timestampToSeconds(seg.end)
+                })).filter(seg => seg.start !== null && seg.end !== null && seg.end > seg.start);
+
+                console.log('[OpenAI] Converted segments (seconds):', segments);
+
+                // Validate: sponsor segments should be reasonable (< 3 minutes typically)
+                const validSegments = segments.filter(seg => {
+                    const duration = seg.end - seg.start;
+                    if (duration > 180) { // More than 3 minutes is suspicious
+                        console.warn('[OpenAI] Skipping suspicious segment (too long):', seg, 'duration:', duration);
+                        return false;
+                    }
+                    return true;
+                });
+
+                return { success: true, segments: validSegments };
+            }
+            return { success: true, segments: [] };
+        } catch (parseError) {
+            console.warn('[OpenAI] Could not parse segments:', content);
+            console.warn('[OpenAI] Parse error:', parseError);
+            return { success: true, segments: [] };
+        }
+
+    } catch (error) {
+        console.error('[OpenAI] Error detecting sponsors:', error);
+        return { success: false, error: error.message };
+    }
+}
+
+/**
  * Generate a summary of the transcript using OpenAI API
  * @param {string} transcript - The video transcript text
  * @param {string} apiKey - OpenAI API key
@@ -21,15 +197,16 @@ async function generateSummary(transcript, apiKey, summaryMode = 'detailed') {
 
         // Get language preference
         const languagePreference = await getLanguagePreference();
-        let languageConfig;
 
-        if (summaryMode === 'express') {
-            languageConfig = getExpressLanguageConfig(languagePreference);
-        } else if (summaryMode === 'bullets') {
-            languageConfig = getBulletsLanguageConfig(languagePreference);
-        } else {
-            languageConfig = getLanguageConfig(languagePreference);
-        }
+        // Get sponsor filter preference
+        const filterSponsors = await getSponsorFilterPreference();
+        console.log(`[OpenAI Summary] Sponsor filter: ${filterSponsors ? 'enabled' : 'disabled'}`);
+
+        // Map summaryMode to output format
+        const outputFormat = summaryMode === 'express' ? 'SHORT' :
+                            summaryMode === 'bullets' ? 'BULLET POINTS' : 'DETAILED';
+
+        const config = getSummaryConfig(languagePreference, filterSponsors);
 
         const response = await fetch('https://api.openai.com/v1/chat/completions', {
             method: 'POST',
@@ -41,15 +218,15 @@ async function generateSummary(transcript, apiKey, summaryMode = 'detailed') {
                 model: 'gpt-4o-mini',
                 messages: [{
                         role: 'system',
-                        content: languageConfig.systemPrompt
+                        content: config.systemPrompt
                     },
                     {
                         role: 'user',
-                        content: languageConfig.userPrompt.replace('${transcript}', transcript)
+                        content: config.userPrompt.replace('${transcript}', transcript).replace(/\${outputFormat}/g, outputFormat)
                     }
                 ],
                 temperature: 0.7,
-                max_tokens: summaryMode === 'express' ? 200 : (summaryMode === 'bullets' ? 600 : 1000)
+                max_tokens: summaryMode === 'express' ? 300 : (summaryMode === 'bullets' ? 800 : 2000)
             })
         });
 
@@ -122,361 +299,633 @@ async function getLanguagePreference() {
 }
 
 /**
- * Get language-specific configuration for prompts
+ * Get the sponsor filtering preference
+ * @returns {Promise<boolean>}
+ */
+async function getSponsorFilterPreference() {
+    return new Promise((resolve) => {
+        chrome.storage.sync.get(['filterSponsors'], (result) => {
+            resolve(result.filterSponsors !== false); // Default to true (enabled)
+        });
+    });
+}
+
+/**
+ * Get summary configuration with the comprehensive prompt
  * @param {string} language - Language code (fr, en, de, es)
+ * @param {boolean} filterSponsors - Whether to filter sponsor content
  * @returns {object} Configuration object with system and user prompts
  */
-function getLanguageConfig(language) {
-    const configs = {
-        fr: {
-            systemPrompt: 'You are an expert at creating practical video summaries in French. Extract CONCRETE information, never describe what the video does. Always respond in French, no markdown, no lists, no formatting.',
-            userPrompt: `Analysez cette transcription et créez un résumé UTILE en 1-2 paragraphes.
+function getSummaryConfig(language, filterSponsors = true) {
+    const languageInstructions = {
+        fr: 'Always respond in French.',
+        en: 'Always respond in English.',
+        de: 'Always respond in German.',
+        es: 'Always respond in Spanish.'
+    };
 
-⚠️ INTERDIT ABSOLU :
-- NE JAMAIS dire "Cette vidéo montre...", "Le créateur explique...", "La vidéo décrit..."
-- NE JAMAIS décrire CE QUE fait la vidéo
-- DONNER directement L'INFORMATION CONCRÈTE
+    const sponsorFilterInstructions = {
+        en: `
+------------------------------------
+SPONSOR SEGMENT HANDLING
+------------------------------------
+IMPORTANT: IGNORE and DO NOT include any sponsor segments, promotional content, or paid partnerships in your summary.
+Sponsor segments typically include:
+- Product promotions (NordVPN, Skillshare, Audible, Squarespace, etc.)
+- Discount codes and "use my code" mentions
+- Affiliate links and "link in description" promotions
+- Sponsored messages and paid partnerships
+- Self-promotions for merchandise or Patreon
 
-SELON LE TYPE DE CONTENU :
+Focus ONLY on the actual educational/entertainment content of the video.
+Do NOT mention that you skipped sponsor content.
+`,
+        fr: `
+------------------------------------
+GESTION DES SEGMENTS SPONSORISÉS
+------------------------------------
+IMPORTANT: IGNOREZ et N'INCLUEZ PAS les segments sponsorisés, le contenu promotionnel ou les partenariats payants dans votre résumé.
+Les segments sponsorisés comprennent généralement:
+- Promotions de produits (NordVPN, Skillshare, Audible, Squarespace, etc.)
+- Codes promo et mentions "utilisez mon code"
+- Liens affiliés et promotions "lien en description"
+- Messages sponsorisés et partenariats payants
+- Auto-promotions pour le merchandising ou Patreon
 
-RECETTE/TUTORIEL CUISINE : Donner le plat, les ingrédients principaux avec quantités approximatives, les étapes essentielles de cuisson, temps de cuisson, température si mentionnée, et astuces clés. Exemple : "Le boeuf bourguignon nécessite 1kg de viande de boeuf, des carottes, oignons, lardons, ail, bouquet garni et une bouteille de vin rouge. Faire revenir la viande..."
+Concentrez-vous UNIQUEMENT sur le contenu éducatif/divertissant réel de la vidéo.
+Ne mentionnez PAS que vous avez ignoré le contenu sponsorisé.
+`,
+        de: `
+------------------------------------
+UMGANG MIT SPONSOR-SEGMENTEN
+------------------------------------
+WICHTIG: IGNORIEREN Sie Sponsor-Segmente, Werbeinhalte oder bezahlte Partnerschaften in Ihrer Zusammenfassung.
+Sponsor-Segmente umfassen typischerweise:
+- Produktwerbung (NordVPN, Skillshare, Audible, Squarespace, etc.)
+- Rabattcodes und "benutzt meinen Code" Erwähnungen
+- Affiliate-Links und "Link in der Beschreibung" Promotionen
+- Gesponserte Nachrichten und bezahlte Partnerschaften
+- Eigenwerbung für Merchandise oder Patreon
 
-ACTUALITÉS : Donner le fait précis, qui/quoi/où/quand, contexte immédiat, conséquences. Exemple : "OpenAI et Disney ont signé un accord le 15 janvier 2025 pour intégrer ChatGPT dans..."
+Konzentrieren Sie sich NUR auf den tatsächlichen Bildungs-/Unterhaltungsinhalt des Videos.
+Erwähnen Sie NICHT, dass Sie gesponserte Inhalte übersprungen haben.
+`,
+        es: `
+------------------------------------
+MANEJO DE SEGMENTOS PATROCINADOS
+------------------------------------
+IMPORTANTE: IGNORE y NO INCLUYA segmentos patrocinados, contenido promocional o asociaciones pagas en su resumen.
+Los segmentos patrocinados típicamente incluyen:
+- Promociones de productos (NordVPN, Skillshare, Audible, Squarespace, etc.)
+- Códigos de descuento y menciones de "usa mi código"
+- Enlaces de afiliados y promociones de "enlace en la descripción"
+- Mensajes patrocinados y asociaciones pagas
+- Auto-promociones de merchandising o Patreon
 
-TUTORIEL PRATIQUE : Donner l'objectif, le matériel nécessaire, les étapes concrètes numérotées mentalement, résultat attendu et temps estimé. Exemple : "Pour créer un site web, installer Node.js et VS Code, puis créer un dossier projet..."
+Concéntrese SOLO en el contenido educativo/de entretenimiento real del video.
+NO mencione que omitió contenido patrocinado.
+`
+    };
 
-COMPARAISON PRODUIT : Nommer les produits comparés, leurs prix, différences clés, avantages/inconvénients de chacun, verdict final avec justification. Exemple : "L'iPhone 15 Pro (1199€) contre le Samsung S24 Ultra (1299€). L'iPhone offre..."
-
-HISTOIRE/RÉCIT : Situation de départ, événement déclencheur, développement crucial, dénouement/conclusion. Exemple : "Un homme découvre en 2020 que sa maison cachait un trésor. En rénovant sa cave..."
-
-ÉDUCATIF/SCIENCE : Concept principal expliqué simplement, exemples concrets donnés, application pratique ou leçon à retenir. Exemple : "La photosynthèse permet aux plantes de transformer CO2 et eau en glucose grâce à la lumière..."
-
-CRITIQUE/AVIS : Sujet critiqué, arguments principaux pour et contre, position finale de l'auteur avec raisons. Exemple : "Le film Dune 2 impressionne par ses effets visuels mais déçoit sur le rythme narratif..."
-
-GAMING : Nom du jeu, objectif de la session, stratégie/technique utilisée, résultat obtenu, moment clé. Exemple : "Session de Elden Ring où le joueur affronte Malenia avec une build mage..."
-
-TECHNOLOGIE/INNOVATION : Technologie présentée, fonctionnement simplifié, démonstration concrète, résultats/performances, implications. Exemple : "Le nouveau processeur M4 d'Apple utilise une gravure 3nm permettant..."
-
-RÈGLES STRICTES :
-- DONNER L'INFORMATION, ne pas décrire la vidéo
-- 1-2 paragraphes, prose naturelle, aucune liste
-- Informations concrètes et chiffres quand disponibles
-- Permettre de comprendre SANS regarder la vidéo
-
-Transcription à analyser :
-\${transcript}`
-        },
+    // Translated template labels for each language
+    const templates = {
         en: {
-            systemPrompt: 'You are an expert at creating practical video summaries in English. Extract CONCRETE information, never describe what the video does. Always respond in English, no markdown, no lists, no formatting.',
-            userPrompt: `Analyze this transcript and create a USEFUL summary in 1-2 paragraphs.
-
-⚠️ ABSOLUTE PROHIBITIONS:
-- NEVER say "This video shows...", "The creator explains...", "The video describes..."
-- NEVER describe WHAT the video does
-- GIVE the CONCRETE INFORMATION directly
-
-BY CONTENT TYPE:
-
-RECIPE/COOKING TUTORIAL: Give the dish name, main ingredients with approximate quantities, essential cooking steps, cooking time, temperature if mentioned, and key tips. Example: "Beef bourguignon requires 1kg beef, carrots, onions, bacon, garlic, bouquet garni, and a bottle of red wine. Sear the meat..."
-
-NEWS: Give the precise fact, who/what/where/when, immediate context, consequences. Example: "OpenAI and Disney signed an agreement on January 15, 2025 to integrate ChatGPT into..."
-
-PRACTICAL TUTORIAL: Give the goal, necessary materials, concrete steps mentally numbered, expected result, and estimated time. Example: "To create a website, install Node.js and VS Code, then create a project folder..."
-
-PRODUCT COMPARISON: Name the compared products, their prices, key differences, pros/cons of each, final verdict with justification. Example: "iPhone 15 Pro ($1199) vs Samsung S24 Ultra ($1299). The iPhone offers..."
-
-STORY/NARRATIVE: Starting situation, triggering event, crucial development, outcome/conclusion. Example: "A man discovered in 2020 that his house hid a treasure. While renovating his basement..."
-
-EDUCATION/SCIENCE: Main concept explained simply, concrete examples given, practical application or key takeaway. Example: "Photosynthesis allows plants to transform CO2 and water into glucose using light..."
-
-REVIEW/OPINION: Subject reviewed, main arguments for and against, author's final position with reasons. Example: "Dune 2 impresses with visual effects but disappoints in narrative pacing..."
-
-GAMING: Game name, session objective, strategy/technique used, result obtained, key moment. Example: "Elden Ring session where the player fights Malenia with a mage build..."
-
-TECHNOLOGY/INNOVATION: Technology presented, simplified functioning, concrete demonstration, results/performance, implications. Example: "Apple's new M4 processor uses 3nm engraving enabling..."
-
-STRICT RULES:
-- GIVE THE INFORMATION, don't describe the video
-- 1-2 paragraphs, natural prose, no lists
-- Concrete information and numbers when available
-- Must allow understanding WITHOUT watching the video
-
-Transcript to analyze:
-\${transcript}`
+            // Recipe
+            dishName: 'DISH NAME',
+            ingredients: 'INGREDIENTS',
+            preparation: 'PREPARATION',
+            cooking: 'COOKING',
+            method: 'Method',
+            temperature: 'Temperature',
+            time: 'Time',
+            tipsVariations: 'TIPS & VARIATIONS',
+            // Tutorial
+            goal: 'GOAL',
+            prerequisites: 'PREREQUISITES',
+            stepByStep: 'STEP-BY-STEP PROCESS',
+            mistakesToAvoid: 'COMMON MISTAKES TO AVOID',
+            proTips: 'PRO TIPS',
+            // Product Review
+            product: 'PRODUCT',
+            pros: 'PROS',
+            cons: 'CONS',
+            whoIsItFor: 'WHO IS IT FOR?',
+            whoShouldSkip: 'WHO SHOULD SKIP IT?',
+            verdict: 'VERDICT',
+            // News
+            headline: 'HEADLINE',
+            context: 'CONTEXT',
+            keyFacts: 'KEY FACTS',
+            stakeholders: 'STAKEHOLDERS',
+            implications: 'IMPLICATIONS',
+            // Opinion
+            mainArgument: 'MAIN ARGUMENT',
+            supportingPoints: 'SUPPORTING POINTS',
+            counterarguments: 'COUNTERARGUMENTS ADDRESSED',
+            conclusion: 'CONCLUSION',
+            // Interview
+            participants: 'PARTICIPANTS',
+            keyInsights: 'KEY INSIGHTS',
+            memorableQuotes: 'MEMORABLE QUOTES',
+            mainTakeaways: 'MAIN TAKEAWAYS',
+            // Educational
+            topic: 'TOPIC',
+            coreConcept: 'CORE CONCEPT',
+            whyItMatters: 'WHY IT MATTERS',
+            keyPoints: 'KEY POINTS',
+            rememberThis: 'REMEMBER THIS',
+            // Motivation
+            coreMessage: 'CORE MESSAGE',
+            keyPrinciples: 'KEY PRINCIPLES',
+            actionableAdvice: 'ACTIONABLE ADVICE',
+            powerfulQuotes: 'POWERFUL QUOTES',
+            mindsetShift: 'MINDSET SHIFT',
+            // Technical
+            objective: 'OBJECTIVE',
+            toolsSetup: 'TOOLS & SETUP',
+            implementation: 'IMPLEMENTATION',
+            gotchas: 'GOTCHAS',
+            keyConcepts: 'KEY CONCEPTS',
+            // Default
+            overview: 'OVERVIEW',
+            highlights: 'HIGHLIGHTS',
+            takeaway: 'TAKEAWAY'
+        },
+        fr: {
+            // Recipe
+            dishName: 'NOM DU PLAT',
+            ingredients: 'INGRÉDIENTS',
+            preparation: 'PRÉPARATION',
+            cooking: 'CUISSON',
+            method: 'Méthode',
+            temperature: 'Température',
+            time: 'Temps',
+            tipsVariations: 'ASTUCES & VARIANTES',
+            // Tutorial
+            goal: 'OBJECTIF',
+            prerequisites: 'PRÉREQUIS',
+            stepByStep: 'ÉTAPES',
+            mistakesToAvoid: 'ERREURS À ÉVITER',
+            proTips: 'CONSEILS DE PRO',
+            // Product Review
+            product: 'PRODUIT',
+            pros: 'AVANTAGES',
+            cons: 'INCONVÉNIENTS',
+            whoIsItFor: 'POUR QUI ?',
+            whoShouldSkip: 'À ÉVITER SI...',
+            verdict: 'VERDICT',
+            // News
+            headline: 'TITRE',
+            context: 'CONTEXTE',
+            keyFacts: 'FAITS CLÉS',
+            stakeholders: 'ACTEURS IMPLIQUÉS',
+            implications: 'IMPLICATIONS',
+            // Opinion
+            mainArgument: 'ARGUMENT PRINCIPAL',
+            supportingPoints: 'POINTS DE SOUTIEN',
+            counterarguments: 'CONTRE-ARGUMENTS ABORDÉS',
+            conclusion: 'CONCLUSION',
+            // Interview
+            participants: 'PARTICIPANTS',
+            keyInsights: 'IDÉES CLÉS',
+            memorableQuotes: 'CITATIONS MÉMORABLES',
+            mainTakeaways: 'POINTS À RETENIR',
+            // Educational
+            topic: 'SUJET',
+            coreConcept: 'CONCEPT CENTRAL',
+            whyItMatters: 'POURQUOI C\'EST IMPORTANT',
+            keyPoints: 'POINTS CLÉS',
+            rememberThis: 'À RETENIR',
+            // Motivation
+            coreMessage: 'MESSAGE PRINCIPAL',
+            keyPrinciples: 'PRINCIPES CLÉS',
+            actionableAdvice: 'CONSEILS PRATIQUES',
+            powerfulQuotes: 'CITATIONS MARQUANTES',
+            mindsetShift: 'CHANGEMENT DE MENTALITÉ',
+            // Technical
+            objective: 'OBJECTIF',
+            toolsSetup: 'OUTILS & CONFIGURATION',
+            implementation: 'IMPLÉMENTATION',
+            gotchas: 'PIÈGES À ÉVITER',
+            keyConcepts: 'CONCEPTS CLÉS',
+            // Default
+            overview: 'APERÇU',
+            highlights: 'MOMENTS FORTS',
+            takeaway: 'À RETENIR'
         },
         de: {
-            systemPrompt: 'You are an expert at creating practical video summaries in German. Extract CONCRETE information, never describe what the video does. Always respond in German, no markdown, no lists, no formatting.',
-            userPrompt: `Analysieren Sie dieses Transkript und erstellen Sie eine NÜTZLICHE Zusammenfassung in 1-2 Absätzen.
-
-⚠️ ABSOLUTE VERBOTE:
-- NIEMALS sagen "Dieses Video zeigt...", "Der Ersteller erklärt...", "Das Video beschreibt..."
-- NIEMALS beschreiben WAS das Video tut
-- GEBEN Sie die KONKRETE INFORMATION direkt
-
-NACH INHALTSTYP:
-
-REZEPT/KOCHTUTORIAL: Gericht, Hauptzutaten mit ungefähren Mengen, wesentliche Kochschritte, Kochzeit, Temperatur falls erwähnt, wichtige Tipps angeben.
-
-NACHRICHTEN: Präzise Fakten, wer/was/wo/wann, unmittelbarer Kontext, Konsequenzen angeben.
-
-PRAKTISCHES TUTORIAL: Ziel, notwendige Materialien, konkrete Schritte mental nummeriert, erwartetes Ergebnis, geschätzte Zeit angeben.
-
-PRODUKTVERGLEICH: Verglichene Produkte, Preise, Hauptunterschiede, Vor-/Nachteile, Urteil mit Begründung nennen.
-
-GESCHICHTE/ERZÄHLUNG: Ausgangssituation, auslösendes Ereignis, entscheidende Entwicklung, Ausgang/Fazit.
-
-BILDUNG/WISSENSCHAFT: Hauptkonzept einfach erklärt, konkrete Beispiele, praktische Anwendung oder wichtigste Erkenntnis.
-
-KRITIK/MEINUNG: Kritisiertes Thema, Hauptargumente dafür und dagegen, Autorenposition mit Gründen.
-
-GAMING: Spielname, Sitzungsziel, verwendete Strategie/Technik, Ergebnis, Schlüsselmoment.
-
-TECHNOLOGIE/INNOVATION: Präsentierte Technologie, vereinfachte Funktionsweise, konkrete Demonstration, Ergebnisse/Leistung, Auswirkungen.
-
-STRENGE REGELN:
-- INFORMATION GEBEN, nicht das Video beschreiben
-- 1-2 Absätze, natürliche Prosa, keine Listen
-- Konkrete Informationen und Zahlen wenn verfügbar
-- Muss Verständnis OHNE Video-Ansicht ermöglichen
-
-Zu analysierendes Transkript:
-\${transcript}`
+            // Recipe
+            dishName: 'GERICHTNAME',
+            ingredients: 'ZUTATEN',
+            preparation: 'ZUBEREITUNG',
+            cooking: 'KOCHEN',
+            method: 'Methode',
+            temperature: 'Temperatur',
+            time: 'Zeit',
+            tipsVariations: 'TIPPS & VARIATIONEN',
+            // Tutorial
+            goal: 'ZIEL',
+            prerequisites: 'VORAUSSETZUNGEN',
+            stepByStep: 'SCHRITT-FÜR-SCHRITT',
+            mistakesToAvoid: 'HÄUFIGE FEHLER',
+            proTips: 'PROFI-TIPPS',
+            // Product Review
+            product: 'PRODUKT',
+            pros: 'VORTEILE',
+            cons: 'NACHTEILE',
+            whoIsItFor: 'FÜR WEN?',
+            whoShouldSkip: 'NICHT GEEIGNET FÜR',
+            verdict: 'FAZIT',
+            // News
+            headline: 'SCHLAGZEILE',
+            context: 'KONTEXT',
+            keyFacts: 'WICHTIGE FAKTEN',
+            stakeholders: 'BETEILIGTE',
+            implications: 'AUSWIRKUNGEN',
+            // Opinion
+            mainArgument: 'HAUPTARGUMENT',
+            supportingPoints: 'STÜTZENDE PUNKTE',
+            counterarguments: 'GEGENARGUMENTE',
+            conclusion: 'SCHLUSSFOLGERUNG',
+            // Interview
+            participants: 'TEILNEHMER',
+            keyInsights: 'WICHTIGE ERKENNTNISSE',
+            memorableQuotes: 'DENKWÜRDIGE ZITATE',
+            mainTakeaways: 'HAUPTERKENNTNISSE',
+            // Educational
+            topic: 'THEMA',
+            coreConcept: 'KERNKONZEPT',
+            whyItMatters: 'WARUM ES WICHTIG IST',
+            keyPoints: 'SCHLÜSSELPUNKTE',
+            rememberThis: 'MERKE DIR',
+            // Motivation
+            coreMessage: 'KERNBOTSCHAFT',
+            keyPrinciples: 'SCHLÜSSELPRINZIPIEN',
+            actionableAdvice: 'PRAKTISCHE RATSCHLÄGE',
+            powerfulQuotes: 'STARKE ZITATE',
+            mindsetShift: 'DENKWEISE ÄNDERN',
+            // Technical
+            objective: 'ZIEL',
+            toolsSetup: 'WERKZEUGE & EINRICHTUNG',
+            implementation: 'IMPLEMENTIERUNG',
+            gotchas: 'FALLSTRICKE',
+            keyConcepts: 'SCHLÜSSELKONZEPTE',
+            // Default
+            overview: 'ÜBERBLICK',
+            highlights: 'HÖHEPUNKTE',
+            takeaway: 'FAZIT'
         },
         es: {
-            systemPrompt: 'You are an expert at creating practical video summaries in Spanish. Extract CONCRETE information, never describe what the video does. Always respond in Spanish, no markdown, no lists, no formatting.',
-            userPrompt: `Analiza esta transcripción y crea un resumen ÚTIL en 1-2 párrafos.
-
-⚠️ PROHIBICIONES ABSOLUTAS:
-- NUNCA decir "Este video muestra...", "El creador explica...", "El video describe..."
-- NUNCA describir QUÉ hace el video
-- DAR la INFORMACIÓN CONCRETA directamente
-
-POR TIPO DE CONTENIDO:
-
-RECETA/TUTORIAL DE COCINA: Dar el plato, ingredientes principales con cantidades aproximadas, pasos esenciales de cocción, tiempo de cocción, temperatura si se menciona, y consejos clave.
-
-NOTICIAS: Dar el hecho preciso, quién/qué/dónde/cuándo, contexto inmediato, consecuencias.
-
-TUTORIAL PRÁCTICO: Dar el objetivo, materiales necesarios, pasos concretos numerados mentalmente, resultado esperado, tiempo estimado.
-
-COMPARACIÓN DE PRODUCTOS: Nombrar productos comparados, precios, diferencias clave, pros/contras de cada uno, veredicto final con justificación.
-
-HISTORIA/NARRATIVA: Situación inicial, evento desencadenante, desarrollo crucial, desenlace/conclusión.
-
-EDUCACIÓN/CIENCIA: Concepto principal explicado simplemente, ejemplos concretos dados, aplicación práctica o lección clave.
-
-CRÍTICA/OPINIÓN: Tema criticado, argumentos principales a favor y en contra, posición final del autor con razones.
-
-GAMING: Nombre del juego, objetivo de la sesión, estrategia/técnica utilizada, resultado obtenido, momento clave.
-
-TECNOLOGÍA/INNOVACIÓN: Tecnología presentada, funcionamiento simplificado, demostración concreta, resultados/rendimiento, implicaciones.
-
-REGLAS ESTRICTAS:
-- DAR LA INFORMACIÓN, no describir el video
-- 1-2 párrafos, prosa natural, sin listas
-- Información concreta y números cuando estén disponibles
-- Debe permitir comprensión SIN ver el video
-
-Transcripción a analizar:
-\${transcript}`
+            // Recipe
+            dishName: 'NOMBRE DEL PLATO',
+            ingredients: 'INGREDIENTES',
+            preparation: 'PREPARACIÓN',
+            cooking: 'COCCIÓN',
+            method: 'Método',
+            temperature: 'Temperatura',
+            time: 'Tiempo',
+            tipsVariations: 'CONSEJOS Y VARIACIONES',
+            // Tutorial
+            goal: 'OBJETIVO',
+            prerequisites: 'PRERREQUISITOS',
+            stepByStep: 'PASO A PASO',
+            mistakesToAvoid: 'ERRORES COMUNES',
+            proTips: 'CONSEJOS PRO',
+            // Product Review
+            product: 'PRODUCTO',
+            pros: 'VENTAJAS',
+            cons: 'DESVENTAJAS',
+            whoIsItFor: '¿PARA QUIÉN?',
+            whoShouldSkip: '¿QUIÉN DEBERÍA EVITARLO?',
+            verdict: 'VEREDICTO',
+            // News
+            headline: 'TITULAR',
+            context: 'CONTEXTO',
+            keyFacts: 'DATOS CLAVE',
+            stakeholders: 'ACTORES INVOLUCRADOS',
+            implications: 'IMPLICACIONES',
+            // Opinion
+            mainArgument: 'ARGUMENTO PRINCIPAL',
+            supportingPoints: 'PUNTOS DE APOYO',
+            counterarguments: 'CONTRAARGUMENTOS',
+            conclusion: 'CONCLUSIÓN',
+            // Interview
+            participants: 'PARTICIPANTES',
+            keyInsights: 'IDEAS CLAVE',
+            memorableQuotes: 'CITAS MEMORABLES',
+            mainTakeaways: 'PUNTOS PRINCIPALES',
+            // Educational
+            topic: 'TEMA',
+            coreConcept: 'CONCEPTO CENTRAL',
+            whyItMatters: 'POR QUÉ IMPORTA',
+            keyPoints: 'PUNTOS CLAVE',
+            rememberThis: 'RECUERDA ESTO',
+            // Motivation
+            coreMessage: 'MENSAJE CENTRAL',
+            keyPrinciples: 'PRINCIPIOS CLAVE',
+            actionableAdvice: 'CONSEJOS PRÁCTICOS',
+            powerfulQuotes: 'CITAS PODEROSAS',
+            mindsetShift: 'CAMBIO DE MENTALIDAD',
+            // Technical
+            objective: 'OBJETIVO',
+            toolsSetup: 'HERRAMIENTAS Y CONFIGURACIÓN',
+            implementation: 'IMPLEMENTACIÓN',
+            gotchas: 'ERRORES FRECUENTES',
+            keyConcepts: 'CONCEPTOS CLAVE',
+            // Default
+            overview: 'RESUMEN',
+            highlights: 'MOMENTOS DESTACADOS',
+            takeaway: 'CONCLUSIÓN'
         }
     };
 
-    return configs[language] || configs.fr; // Default to French if language not found
-}
+    const t = templates[language] || templates.fr;
+    const langInstruction = languageInstructions[language] || languageInstructions.fr;
+    const sponsorInstruction = filterSponsors
+        ? (sponsorFilterInstructions[language] || sponsorFilterInstructions.en)
+        : '';
 
-/**
- * Get language-specific configuration for express mode (ultra-condensed summaries)
- * @param {string} language - Language code (fr, en, de, es)
- * @returns {object} Configuration object with system and user prompts for express mode
- */
-function getExpressLanguageConfig(language) {
-    const configs = {
-        fr: {
-            systemPrompt: 'You are an expert at creating ultra-condensed video summaries in French. Always respond in French with exactly 3 sentences, no formatting.',
-            userPrompt: `Analysez cette transcription vidéo YouTube et générez un résumé ultra-condensé de EXACTEMENT 3 phrases.
+    const systemPrompt = `You are an expert content analyst and summarizer. ${langInstruction}`;
 
-RÈGLES STRICTES :
-- Exactement 3 phrases, pas plus, pas moins
-- Aucun formatage (pas de puces, pas de numéros, pas de titres)
-- Ton direct et factuel uniquement
-- Aucun détail secondaire
+    const userPrompt = `I will provide you with:
+1) A YouTube video transcript
+2) A selected output format
 
-STRUCTURE OBLIGATOIRE :
-Phrase 1 : L'idée principale ou le sujet central de la vidéo
-Phrase 2 : L'événement clé, l'information principale ou le point crucial
-Phrase 3 : La conclusion, le résultat final ou le message de fin
+Your task is to:
+- Analyze the transcript
+- Identify the video type
+- Produce the best possible summary adapted to that video type
+- Focus on what a viewer should REMEMBER long-term
+- USE THE EXACT FORMATTING TEMPLATE for the detected video type
 
-Le résumé doit suffire à comprendre la vidéo sans la regarder. Allez droit au but.
+------------------------------------
+VIDEO TYPE DETECTION
+------------------------------------
+First, silently determine the video category. Possible types include:
 
-Transcription à analyser :
-\${transcript}`
-        },
-        en: {
-            systemPrompt: 'You are an expert at creating ultra-condensed video summaries in English. Always respond in English with exactly 3 sentences, no formatting.',
-            userPrompt: `Analyze this YouTube video transcript and generate an ultra-condensed summary of EXACTLY 3 sentences.
+- Tutorial / How-to
+- Educational / Explainer
+- News / Current events
+- Opinion / Commentary
+- Interview / Podcast
+- Recipe / Cooking
+- Documentary
+- Product Review
+- Productivity / Self-improvement
+- Technical / Programming
+- Business / Finance
+- Entertainment / Storytelling
+- Motivation / Speech
 
-STRICT RULES:
-- Exactly 3 sentences, no more, no less
-- No formatting (no bullets, no numbers, no titles)
-- Direct, factual tone only
-- No secondary details
+------------------------------------
+FORMATTING TEMPLATES FOR DETAILED MODE
+------------------------------------
+IMPORTANT: When output format is DETAILED, you MUST use these exact section structures with headers.
 
-MANDATORY STRUCTURE:
-Sentence 1: The core idea or central topic of the video
-Sentence 2: The key event, main information, or crucial point
-Sentence 3: The conclusion, final outcome, or ending message
+### RECIPE / COOKING VIDEO → Use this exact structure:
 
-The summary must be enough to understand the video without watching it. Get straight to the point.
+🍽️ [${t.dishName}]
 
-Transcript to analyze:
-\${transcript}`
-        },
-        de: {
-            systemPrompt: 'You are an expert at creating ultra-condensed video summaries in German. Always respond in German with exactly 3 sentences, no formatting.',
-            userPrompt: `Analysieren Sie dieses YouTube-Video-Transkript und erstellen Sie eine ultra-komprimierte Zusammenfassung von GENAU 3 Sätzen.
+📝 ${t.ingredients}
+• [ingredient 1 with quantity]
+• [ingredient 2 with quantity]
+• ...
 
-STRENGE REGELN:
-- Genau 3 Sätze, nicht mehr, nicht weniger
-- Keine Formatierung (keine Aufzählungszeichen, keine Zahlen, keine Titel)
-- Nur direkter, sachlicher Ton
-- Keine Nebendetails
+👨‍🍳 ${t.preparation}
+1. [step 1]
+2. [step 2]
+3. ...
 
-OBLIGATORISCHE STRUKTUR:
-Satz 1: Die Kernidee oder das zentrale Thema des Videos
-Satz 2: Das Schlüsselereignis, die Hauptinformation oder der entscheidende Punkt
-Satz 3: Das Fazit, das Endergebnis oder die Abschlussbotschaft
+�� ${t.cooking}
+• ${t.method}: [baking/frying/etc.]
+• ${t.temperature}: [if mentioned]
+• ${t.time}: [duration]
 
-Die Zusammenfassung muss ausreichen, um das Video zu verstehen, ohne es anzusehen. Kommen Sie direkt zum Punkt.
+💡 ${t.tipsVariations}
+• [tip 1]
+• [tip 2]
 
-Zu analysierendes Transkript:
-\${transcript}`
-        },
-        es: {
-            systemPrompt: 'You are an expert at creating ultra-condensed video summaries in Spanish. Always respond in Spanish with exactly 3 sentences, no formatting.',
-            userPrompt: `Analiza esta transcripción de video de YouTube y genera un resumen ultra-condensado de EXACTAMENTE 3 frases.
 
-REGLAS ESTRICTAS:
-- Exactamente 3 frases, ni más ni menos
-- Sin formato (sin viñetas, sin números, sin títulos)
-- Solo tono directo y factual
-- Sin detalles secundarios
+### TUTORIAL / HOW-TO → Use this exact structure:
+🎯 ${t.goal}
+[What you will learn/achieve]
 
-ESTRUCTURA OBLIGATORIA:
-Frase 1: La idea central o tema principal del video
-Frase 2: El evento clave, información principal o punto crucial
-Frase 3: La conclusión, resultado final o mensaje de cierre
+📋 ${t.prerequisites}
+• [requirement 1]
+• [requirement 2]
 
-El resumen debe ser suficiente para entender el video sin verlo. Ve directo al grano.
+📝 ${t.stepByStep}
+1. [Step 1 title]
+   [Details]
 
-Transcripción a analizar:
-\${transcript}`
-        }
+2. [Step 2 title]
+   [Details]
+
+3. ...
+
+⚠️ ${t.mistakesToAvoid}
+• [mistake 1]
+• [mistake 2]
+
+💡 ${t.proTips}
+• [tip 1]
+• [tip 2]
+
+### PRODUCT REVIEW → Use this exact structure:
+📦 ${t.product}
+[Product name and what it is]
+
+✅ ${t.pros}
+• [pro 1]
+• [pro 2]
+• ...
+
+❌ ${t.cons}
+• [con 1]
+• [con 2]
+• ...
+
+👤 ${t.whoIsItFor}
+[Target audience]
+
+🚫 ${t.whoShouldSkip}
+[Who shouldn't buy]
+
+⭐ ${t.verdict}
+[Final recommendation with rating if given]
+
+### NEWS / CURRENT EVENTS → Use this exact structure:
+📰 ${t.headline}
+[Main news in one sentence]
+
+📍 ${t.context}
+[Background and why this matters]
+
+📋 ${t.keyFacts}
+• [fact 1]
+• [fact 2]
+• ...
+
+👥 ${t.stakeholders}
+[Who is involved]
+
+🔮 ${t.implications}
+[What this means going forward]
+
+### OPINION / COMMENTARY → Use this exact structure:
+💭 ${t.mainArgument}
+[The creator's central thesis]
+
+📊 ${t.supportingPoints}
+• [point 1]
+• [point 2]
+• ...
+
+⚖️ ${t.counterarguments}
+• [if any were discussed]
+
+🎯 ${t.conclusion}
+[Creator's final stance]
+
+### INTERVIEW / PODCAST → Use this exact structure:
+🎙️ ${t.participants}
+• [Person 1] - [Role/Title]
+• [Person 2] - [Role/Title]
+
+💎 ${t.keyInsights}
+• [insight 1]
+• [insight 2]
+• ...
+
+💬 ${t.memorableQuotes}
+• "[quote 1]"
+• "[quote 2]"
+
+🧠 ${t.mainTakeaways}
+[Summary of most important ideas]
+
+### EDUCATIONAL / EXPLAINER → Use this exact structure:
+📚 ${t.topic}
+[What is being explained]
+
+🔑 ${t.coreConcept}
+[Main idea in simple terms]
+
+❓ ${t.whyItMatters}
+[Relevance and importance]
+
+📖 ${t.keyPoints}
+• [point 1]
+• [point 2]
+• ...
+
+🧠 ${t.rememberThis}
+[Mental model or key takeaway]
+
+### MOTIVATION / SELF-IMPROVEMENT → Use this exact structure:
+🎯 ${t.coreMessage}
+[The main principle]
+
+💡 ${t.keyPrinciples}
+• [principle 1]
+• [principle 2]
+• ...
+
+✨ ${t.actionableAdvice}
+• [action 1]
+• [action 2]
+
+💬 ${t.powerfulQuotes}
+• "[quote 1]"
+• "[quote 2]"
+
+🧠 ${t.mindsetShift}
+[What to change in your thinking]
+
+### TECHNICAL / PROGRAMMING → Use this exact structure:
+💻 ${t.topic}
+[What is being taught]
+
+🎯 ${t.objective}
+[What you'll be able to do]
+
+🛠️ ${t.toolsSetup}
+• [tool/requirement 1]
+• [tool/requirement 2]
+
+📝 ${t.implementation}
+1. [Step 1]
+   \`[code or command if relevant]\`
+
+2. [Step 2]
+   \`[code or command if relevant]\`
+
+⚠️ ${t.gotchas}
+• [common issue 1]
+• [common issue 2]
+
+📚 ${t.keyConcepts}
+• [concept 1]: [explanation]
+• [concept 2]: [explanation]
+
+### DEFAULT (Entertainment/Documentary/Other) → Use this structure:
+📺 ${t.overview}
+[What the video is about]
+
+🔑 ${t.keyPoints}
+• [point 1]
+• [point 2]
+• ...
+
+🎬 ${t.highlights}
+[Most memorable moments or facts]
+
+🧠 ${t.takeaway}
+[What to remember]
+
+------------------------------------
+OUTPUT FORMAT RULES
+------------------------------------
+
+Selected format: \${outputFormat}
+
+### If DETAILED:
+- USE the appropriate template from above based on video type
+- Include ALL relevant sections from the template
+- Use headers and bullet points as shown
+- Make it scannable and easy to reference later
+
+### If SHORT:
+- 2-3 sentences ONLY
+- No formatting, no bullets, no headers
+- Just the essence and conclusion
+- Pure prose
+
+### If BULLET POINTS:
+- 5-8 bullet points using "• " prefix
+- Each point is one complete sentence
+- No headers, no sub-bullets
+- Focus on key takeaways only
+
+------------------------------------
+QUALITY REQUIREMENTS
+------------------------------------
+- Do NOT summarize line-by-line
+- Remove filler, repetition, and tangents
+- Prioritize clarity, usefulness, and memory retention
+- If transcript is messy, clean and organize the ideas
+- ALWAYS match the template structure for DETAILED mode
+${sponsorInstruction}
+------------------------------------
+INPUT
+------------------------------------
+Here is the YouTube video transcript:
+\${transcript}
+
+Selected output format: \${outputFormat}`;
+
+    return {
+        systemPrompt,
+        userPrompt
     };
-
-    return configs[language] || configs.fr; // Default to French if language not found
-}
-
-/**
- * Get language-specific configuration for bullets mode (key highlights and takeaways)
- * @param {string} language - Language code (fr, en, de, es)
- * @returns {object} Configuration object with system and user prompts for bullets mode
- */
-function getBulletsLanguageConfig(language) {
-    const configs = {
-        fr: {
-            systemPrompt: 'You are an expert at creating concise bullet-point summaries in French. Always respond in French with 5-8 bullet points, no other formatting.',
-            userPrompt: `Analysez cette transcription vidéo YouTube et générez un résumé sous forme de points clés.
-
-RÈGLES STRICTES :
-- Entre 5 et 8 points clés maximum
-- Chaque point commence par "• " (bullet Unicode)
-- Chaque point est une phrase complète
-- Aucun formatage supplémentaire (pas de titres, pas de numéros)
-- Ton direct et factuel uniquement
-
-CONTENU DES POINTS :
-- Points principaux et idées clés de la vidéo
-- Faits importants, chiffres, et informations concrètes
-- Étapes clés ou événements principaux
-- Conclusions et messages à retenir
-- Astuces ou conseils pratiques si présents
-
-Le résumé doit donner les informations essentielles sans regarder la vidéo. Allez droit au but.
-
-Transcription à analyser :
-\${transcript}`
-        },
-        en: {
-            systemPrompt: 'You are an expert at creating concise bullet-point summaries in English. Always respond in English with 5-8 bullet points, no other formatting.',
-            userPrompt: `Analyze this YouTube video transcript and generate a summary in bullet points.
-
-STRICT RULES:
-- Between 5 and 8 key points maximum
-- Each point starts with "• " (Unicode bullet)
-- Each point is a complete sentence
-- No additional formatting (no titles, no numbers)
-- Direct, factual tone only
-
-BULLET CONTENT:
-- Main points and key ideas from the video
-- Important facts, numbers, and concrete information
-- Key steps or main events
-- Conclusions and key takeaways
-- Tips or practical advice if present
-
-The summary must provide essential information without watching the video. Get straight to the point.
-
-Transcript to analyze:
-\${transcript}`
-        },
-        de: {
-            systemPrompt: 'You are an expert at creating concise bullet-point summaries in German. Always respond in German with 5-8 bullet points, no other formatting.',
-            userPrompt: `Analysieren Sie dieses YouTube-Video-Transkript und erstellen Sie eine Zusammenfassung in Stichpunkten.
-
-STRENGE REGELN:
-- Zwischen 5 und 8 Hauptpunkte maximum
-- Jeder Punkt beginnt mit "• " (Unicode-Aufzählungszeichen)
-- Jeder Punkt ist ein vollständiger Satz
-- Keine zusätzliche Formatierung (keine Titel, keine Zahlen)
-- Nur direkter, sachlicher Ton
-
-INHALT DER PUNKTE:
-- Hauptpunkte und Schlüsselideen aus dem Video
-- Wichtige Fakten, Zahlen und konkrete Informationen
-- Hauptschritte oder Hauptereignisse
-- Schlussfolgerungen und wichtige Erkenntnisse
-- Tipps oder praktische Ratschläge falls vorhanden
-
-Die Zusammenfassung muss wesentliche Informationen liefern, ohne das Video anzusehen. Kommen Sie direkt zum Punkt.
-
-Zu analysierendes Transkript:
-\${transcript}`
-        },
-        es: {
-            systemPrompt: 'You are an expert at creating concise bullet-point summaries in Spanish. Always respond in Spanish with 5-8 bullet points, no other formatting.',
-            userPrompt: `Analiza esta transcripción de video de YouTube y genera un resumen en puntos clave.
-
-REGLAS ESTRICTAS:
-- Entre 5 y 8 puntos clave máximo
-- Cada punto comienza con "• " (viñeta Unicode)
-- Cada punto es una frase completa
-- Sin formato adicional (sin títulos, sin números)
-- Solo tono directo y factual
-
-CONTENIDO DE LOS PUNTOS:
-- Puntos principales e ideas clave del video
-- Hechos importantes, números e información concreta
-- Pasos clave o eventos principales
-- Conclusiones y mensajes clave
-- Consejos o recomendaciones prácticas si están presentes
-
-El resumen debe proporcionar información esencial sin ver el video. Ve directo al grano.
-
-Transcripción a analizar:
-\${transcript}`
-        }
-    };
-
-    return configs[language] || configs.fr; // Default to French if language not found
 }

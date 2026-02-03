@@ -1051,6 +1051,93 @@ function showSettingsModal() {
   languageSection.appendChild(languageLabel);
   languageSection.appendChild(languageSelect);
 
+  // Sponsor Filter Section
+  const sponsorSection = document.createElement('div');
+  sponsorSection.style.cssText = `
+    margin-bottom: 24px;
+  `;
+
+  const sponsorRow = document.createElement('div');
+  sponsorRow.style.cssText = `
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: var(--yt-spec-10-percent-layer);
+    border-radius: 8px;
+  `;
+
+  const sponsorTextContainer = document.createElement('div');
+  sponsorTextContainer.innerHTML = `
+    <div style="font-weight: 500; font-family: Roboto, Arial, sans-serif; color: var(--yt-spec-text-primary);">Skip sponsor segments</div>
+    <div style="font-size: 13px; color: var(--yt-spec-text-secondary); margin-top: 4px; font-family: Roboto, Arial, sans-serif;">
+      AI will ignore sponsored content in summaries
+    </div>
+  `;
+
+  // Simple toggle button
+  const toggleBtn = document.createElement('button');
+  toggleBtn.type = 'button';
+  toggleBtn.style.cssText = `
+    position: relative;
+    width: 44px;
+    height: 24px;
+    flex-shrink: 0;
+    margin-left: 16px;
+    border: none;
+    border-radius: 24px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+    background-color: #606060;
+    padding: 0;
+  `;
+
+  const toggleCircle = document.createElement('span');
+  toggleCircle.style.cssText = `
+    position: absolute;
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    top: 3px;
+    background-color: white;
+    transition: transform 0.3s;
+    border-radius: 50%;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    pointer-events: none;
+  `;
+  toggleBtn.appendChild(toggleCircle);
+
+  // State
+  let sponsorFilterEnabled = true;
+
+  function updateSponsorToggle() {
+    if (sponsorFilterEnabled) {
+      toggleBtn.style.backgroundColor = '#cc0000';
+      toggleCircle.style.transform = 'translateX(20px)';
+    } else {
+      toggleBtn.style.backgroundColor = '#606060';
+      toggleCircle.style.transform = 'translateX(0)';
+    }
+  }
+
+  // Load saved preference
+  chrome.storage.sync.get(['filterSponsors'], (result) => {
+    sponsorFilterEnabled = result.filterSponsors !== false;
+    updateSponsorToggle();
+  });
+
+  // Toggle click handler
+  toggleBtn.addEventListener('click', async () => {
+    sponsorFilterEnabled = !sponsorFilterEnabled;
+    updateSponsorToggle();
+    await chrome.storage.sync.set({ filterSponsors: sponsorFilterEnabled });
+    console.log('[Transcript Downloader] Sponsor filter:', sponsorFilterEnabled ? 'enabled' : 'disabled');
+  });
+
+  sponsorRow.appendChild(sponsorTextContainer);
+  sponsorRow.appendChild(toggleBtn);
+  sponsorSection.appendChild(sponsorRow);
+
   // Note
   const note = document.createElement('div');
   note.textContent = "Make sure you're on a YouTube video page with captions available.";
@@ -1084,6 +1171,7 @@ function showSettingsModal() {
   modalContent.appendChild(title);
   modalContent.appendChild(apiKeySection);
   modalContent.appendChild(languageSection);
+  modalContent.appendChild(sponsorSection);
   modalContent.appendChild(note);
   modalContent.appendChild(closeBtn);
 
@@ -1285,6 +1373,246 @@ async function handleSummarize(includeTimestamps, summaryMode = 'detailed') {
   }
 }
 
+// Global state for sponsor skipping
+let sponsorSegments = [];
+let sponsorSkipActive = false;
+let videoTimeChecker = null;
+let currentVideoId = null;
+
+// Auto-detect and skip sponsors when page loads
+async function autoDetectAndSkipSponsors(indicator) {
+  console.log('[Transcript Downloader] Auto-detecting sponsors...');
+
+  // Check if sponsor skip is enabled in settings
+  const skipEnabled = await new Promise(resolve => {
+    chrome.storage.sync.get(['filterSponsors'], result => {
+      resolve(result.filterSponsors !== false); // Default true
+    });
+  });
+
+  if (!skipEnabled) {
+    indicator.innerHTML = `
+      <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; fill: currentColor; margin-right: 4px;">
+        <path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4M12,10.5A1.5,1.5 0 0,0 10.5,12A1.5,1.5 0 0,0 12,13.5A1.5,1.5 0 0,0 13.5,12A1.5,1.5 0 0,0 12,10.5Z"/>
+      </svg>
+      <span>Skip disabled</span>
+    `;
+    indicator.style.background = 'rgba(128, 128, 128, 0.15)';
+    indicator.style.color = '#888';
+    return;
+  }
+
+  // Get current video ID to avoid re-detecting on same video
+  const videoId = new URLSearchParams(window.location.search).get('v');
+  if (videoId === currentVideoId && sponsorSkipActive) {
+    console.log('[Transcript Downloader] Already active for this video');
+    return;
+  }
+  currentVideoId = videoId;
+
+  // Reset previous state
+  if (videoTimeChecker) {
+    clearInterval(videoTimeChecker);
+    videoTimeChecker = null;
+  }
+  sponsorSegments = [];
+  sponsorSkipActive = false;
+
+  // Get API key
+  const apiKey = await getApiKey();
+
+  if (!apiKey) {
+    indicator.innerHTML = `
+      <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; fill: currentColor; margin-right: 4px;">
+        <path d="M13,13H11V7H13M13,17H11V15H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z"/>
+      </svg>
+      <span>No API key</span>
+    `;
+    indicator.style.background = 'rgba(255, 0, 0, 0.1)';
+    indicator.style.color = '#ff6b6b';
+    return;
+  }
+
+  try {
+    // Wait a bit for transcript to be available
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // Get transcript WITH timestamps
+    const result = await getTranscript(true);
+
+    if (!result.success) {
+      throw new Error(result.error);
+    }
+
+    // Detect sponsor segments using AI
+    const detection = await detectSponsorSegments(result.transcript, apiKey);
+
+    if (!detection.success) {
+      throw new Error(detection.error);
+    }
+
+    sponsorSegments = detection.segments || [];
+
+    if (sponsorSegments.length === 0) {
+      indicator.innerHTML = `
+        <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; fill: currentColor; margin-right: 4px;">
+          <path d="M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22A10,10 0 0,1 2,12A10,10 0 0,1 12,2M12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4M11,16.5L6.5,12L7.91,10.59L11,13.67L16.59,8.09L18,9.5L11,16.5Z"/>
+        </svg>
+        <span>No sponsors</span>
+      `;
+      indicator.style.background = 'rgba(0, 200, 0, 0.1)';
+      indicator.style.color = '#4ade80';
+      return;
+    }
+
+    console.log('[Transcript Downloader] Sponsor segments detected:', JSON.stringify(sponsorSegments));
+
+    // Format segments for display
+    const formatTime = (seconds) => {
+      const m = Math.floor(seconds / 60);
+      const s = Math.floor(seconds % 60);
+      return `${m}:${s.toString().padStart(2, '0')}`;
+    };
+    const segmentsList = sponsorSegments.map(s => `${formatTime(s.start)}-${formatTime(s.end)}`).join(', ');
+
+    // Activate sponsor skipping
+    sponsorSkipActive = true;
+    indicator.innerHTML = `
+      <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; fill: currentColor; margin-right: 4px;">
+        <path d="M6,18L14.5,12L6,6M16,6V18H18V6"/>
+      </svg>
+      <span title="${segmentsList}">Skip sponsors: ${segmentsList}</span>
+    `;
+    indicator.style.background = 'rgba(204, 0, 0, 0.15)';
+    indicator.style.color = '#ff4444';
+    indicator.style.cursor = 'help';
+
+    // Get the video element
+    const video = document.querySelector('video');
+    if (!video) {
+      console.error('[Transcript Downloader] Video element not found');
+      return;
+    }
+
+    console.log('[Transcript Downloader] Video element found, starting skip monitor...');
+
+    // Check video time periodically
+    videoTimeChecker = setInterval(() => {
+      if (!sponsorSkipActive) {
+        clearInterval(videoTimeChecker);
+        return;
+      }
+
+      const currentTime = video.currentTime;
+
+      for (const segment of sponsorSegments) {
+        const start = Number(segment.start);
+        const end = Number(segment.end);
+
+        // If we're in a sponsor segment, skip to end
+        if (currentTime >= start && currentTime < end) {
+          console.log(`[Transcript Downloader] 🚀 SKIPPING: ${formatTime(start)} -> ${formatTime(end)} (current: ${formatTime(currentTime)})`);
+          video.currentTime = end + 0.5; // Add small buffer
+          showSkipNotification(segment);
+          break;
+        }
+      }
+    }, 500);
+
+    console.log('[Transcript Downloader] Auto sponsor skip activated!');
+
+  } catch (error) {
+    console.error('[Transcript Downloader] Auto-detect error:', error);
+    indicator.innerHTML = `
+      <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; fill: currentColor; margin-right: 4px;">
+        <path d="M13,13H11V7H13M13,17H11V15H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z"/>
+      </svg>
+      <span>Detection failed</span>
+    `;
+    indicator.style.background = 'rgba(255, 165, 0, 0.15)';
+    indicator.style.color = '#ffa500';
+  }
+}
+
+// Format seconds to MM:SS or H:MM:SS
+function formatTime(seconds) {
+  const hrs = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+
+  if (hrs > 0) {
+    return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  }
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+function showSkipNotification(segment) {
+  // Remove existing notification
+  const existing = document.getElementById('sponsor-skip-notification');
+  if (existing) existing.remove();
+
+  // Find the movie player (has position:relative)
+  const moviePlayer = document.querySelector('#movie_player');
+  if (!moviePlayer) {
+    console.warn('[Transcript Downloader] Movie player not found for notification');
+    return;
+  }
+
+  // Calculate skipped duration
+  const duration = Math.round(segment.end - segment.start);
+
+  const notification = document.createElement('div');
+  notification.id = 'sponsor-skip-notification';
+  notification.innerHTML = `
+    <span style="background: #ff0000; padding: 4px 6px; border-radius: 2px; margin-right: 10px; font-size: 11px;">⏭</span>
+    <span>Sponsor skipped</span>
+    <span style="margin-left: 8px; color: rgba(255,255,255,0.7);">(+${duration}s)</span>
+    <span class="sponsor-notif-close" style="margin-left: 14px; opacity: 0.6; font-size: 18px; line-height: 1;">&times;</span>
+  `;
+  notification.style.cssText = `
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background: rgba(33, 33, 33, 0.95);
+    color: white;
+    padding: 10px 14px;
+    border-radius: 2px;
+    font-family: "YouTube Sans", "Roboto", Arial, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    transition: opacity 0.3s;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+  `;
+
+  // Click anywhere to close
+  notification.addEventListener('click', () => {
+    notification.style.opacity = '0';
+    setTimeout(() => notification.remove(), 300);
+  });
+
+  // Hover effect
+  notification.addEventListener('mouseenter', () => {
+    notification.querySelector('.sponsor-notif-close').style.opacity = '1';
+  });
+  notification.addEventListener('mouseleave', () => {
+    notification.querySelector('.sponsor-notif-close').style.opacity = '0.5';
+  });
+
+  moviePlayer.appendChild(notification);
+
+  // Auto-remove after 4 seconds
+  setTimeout(() => {
+    if (notification.parentNode) {
+      notification.style.opacity = '0';
+      setTimeout(() => notification.remove(), 300);
+    }
+  }, 4000);
+}
+
 // Add download button below the video player
 function addDownloadButton() {
   console.log('[Transcript Downloader] Attempting to add buttons...');
@@ -1312,10 +1640,10 @@ function addDownloadButton() {
         return;
       }
 
-      // Add blinking star animation to the page
-      if (!document.getElementById('blinking-star-animation')) {
+      // Add animations to the page
+      if (!document.getElementById('transcript-downloader-animations')) {
         const style = document.createElement('style');
-        style.id = 'blinking-star-animation';
+        style.id = 'transcript-downloader-animations';
         style.textContent = `
           @keyframes blink-star {
             0%, 100% { opacity: 1; }
@@ -1323,6 +1651,13 @@ function addDownloadButton() {
           }
           .blinking-star {
             animation: blink-star 1.5s ease-in-out infinite;
+          }
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+          .sponsor-spinner {
+            animation: spin 1s linear infinite;
           }
         `;
         document.head.appendChild(style);
@@ -1476,6 +1811,29 @@ function addDownloadButton() {
       leftContainer.appendChild(summarizeDropdown.container);
       leftContainer.appendChild(transcriptDropdown.container);
 
+      // Create sponsor skip status indicator
+      const sponsorIndicator = document.createElement('div');
+      sponsorIndicator.id = 'sponsor-skip-indicator';
+      sponsorIndicator.innerHTML = `
+        <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; fill: currentColor; margin-right: 4px; animation: spin 1s linear infinite;">
+          <path d="M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z"/>
+        </svg>
+        <span>Detecting sponsors...</span>
+      `;
+      sponsorIndicator.style.cssText = `
+        display: flex;
+        align-items: center;
+        padding: 4px 8px;
+        background: rgba(255, 165, 0, 0.2);
+        color: #ffa500;
+        border-radius: 6px;
+        font-family: "Roboto", Arial, sans-serif;
+        font-size: 11px;
+        font-weight: 500;
+      `;
+
+      leftContainer.appendChild(sponsorIndicator);
+
       section.appendChild(leftContainer);
       section.appendChild(rightContainer);
 
@@ -1483,6 +1841,9 @@ function addDownloadButton() {
       secondary.insertBefore(section, secondary.firstChild);
 
       console.log('[Transcript Downloader] ✅ Buttons added successfully!');
+
+      // Auto-detect and skip sponsors
+      autoDetectAndSkipSponsors(sponsorIndicator);
     }
   }, 500);
 
@@ -1519,13 +1880,35 @@ if (!window.transcriptDownloaderInitialized) {
   // Continuously check for transcript panel (more aggressive approach)
   console.log('[Transcript Downloader] Content script loaded!');
 
+  // Track current video for change detection
+  let lastVideoId = null;
+
   // Add buttons to video metadata on page load
   addDownloadButton();
 
-  // Also re-add on navigation (YouTube is a SPA)
+  // Also re-add on navigation (YouTube is a SPA) and re-detect sponsors on video change
   setInterval(() => {
+    const currentVideoId = new URLSearchParams(window.location.search).get('v');
+
     if (!document.getElementById('transcript-download-container')) {
+      lastVideoId = null; // Reset so sponsor detection runs
       addDownloadButton();
+    } else if (currentVideoId && currentVideoId !== lastVideoId) {
+      // Video changed, re-run sponsor detection
+      lastVideoId = currentVideoId;
+      const indicator = document.getElementById('sponsor-skip-indicator');
+      if (indicator) {
+        // Reset indicator and re-detect
+        indicator.innerHTML = `
+          <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; fill: currentColor; margin-right: 4px; animation: spin 1s linear infinite;">
+            <path d="M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z"/>
+          </svg>
+          <span>Detecting sponsors...</span>
+        `;
+        indicator.style.background = 'rgba(255, 165, 0, 0.2)';
+        indicator.style.color = '#ffa500';
+        autoDetectAndSkipSponsors(indicator);
+      }
     }
   }, 2000);
 
