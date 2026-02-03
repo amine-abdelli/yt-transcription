@@ -1534,34 +1534,50 @@ async function autoDetectAndSkipSponsors(indicator) {
   }
 }
 
+// Format seconds to MM:SS or H:MM:SS
+function formatTime(seconds) {
+  const hrs = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+
+  if (hrs > 0) {
+    return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  }
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
 function showSkipNotification(segment) {
   // Remove existing notification
   const existing = document.getElementById('sponsor-skip-notification');
   if (existing) existing.remove();
 
+  // Calculate skipped duration
+  const duration = Math.round(segment.end - segment.start);
+
   const notification = document.createElement('div');
   notification.id = 'sponsor-skip-notification';
   notification.innerHTML = `
-    <svg viewBox="0 0 24 24" style="width: 20px; height: 20px; fill: white; margin-right: 8px;">
+    <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; fill: #4ade80; margin-right: 8px;">
       <path d="M6,18L14.5,12L6,6M16,6V18H18V6"/>
     </svg>
-    Sponsor skipped!
+    <span>Sponsor skipped</span>
+    <span style="margin-left: 8px; background: rgba(74, 222, 128, 0.2); padding: 2px 8px; border-radius: 4px; font-weight: 500; color: #4ade80;">+${duration}s</span>
   `;
   notification.style.cssText = `
     position: fixed;
-    bottom: 100px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(0, 0, 0, 0.8);
+    bottom: 80px;
+    right: 20px;
+    background: rgba(0, 0, 0, 0.85);
     color: white;
-    padding: 12px 20px;
+    padding: 10px 16px;
     border-radius: 8px;
     font-family: "Roboto", Arial, sans-serif;
-    font-size: 14px;
+    font-size: 13px;
     display: flex;
     align-items: center;
     z-index: 10000;
-    animation: fadeInOut 2s ease-in-out;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    animation: slideIn 2.5s ease-in-out;
   `;
 
   // Add animation style if not present
@@ -1569,11 +1585,11 @@ function showSkipNotification(segment) {
     const style = document.createElement('style');
     style.id = 'skip-notification-style';
     style.textContent = `
-      @keyframes fadeInOut {
-        0% { opacity: 0; transform: translateX(-50%) translateY(20px); }
-        15% { opacity: 1; transform: translateX(-50%) translateY(0); }
-        85% { opacity: 1; transform: translateX(-50%) translateY(0); }
-        100% { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+      @keyframes slideIn {
+        0% { opacity: 0; transform: translateX(100px); }
+        10% { opacity: 1; transform: translateX(0); }
+        90% { opacity: 1; transform: translateX(0); }
+        100% { opacity: 0; transform: translateX(100px); }
       }
     `;
     document.head.appendChild(style);
@@ -1582,7 +1598,7 @@ function showSkipNotification(segment) {
   document.body.appendChild(notification);
 
   // Remove after animation
-  setTimeout(() => notification.remove(), 2000);
+  setTimeout(() => notification.remove(), 2500);
 }
 
 // Add download button below the video player
