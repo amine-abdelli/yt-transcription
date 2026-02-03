@@ -10,34 +10,34 @@
 
 <body>
   <div class="container">
-    <h1>YouTube Transcript Downloader</h1>
+    <h1 data-i18n="title">YouTube Transcript Downloader</h1>
 
-    <div class="status" id="status">
+    <div class="status" id="status" data-i18n="readyStatus">
       Ready to download transcript
     </div>
 
     <div class="option">
       <label>
         <input type="checkbox" id="includeTimestamps" checked>
-        Include timestamps (horodatage)
+        <span data-i18n="includeTimestamps">Include timestamps</span>
       </label>
     </div>
 
-    <button id="downloadBtn" class="download-btn">
+    <button id="downloadBtn" class="download-btn" data-i18n="downloadBtn">
       Download Transcript
     </button>
 
     <div class="divider"></div>
 
     <div class="settings-section">
-      <h2>AI Summary Settings</h2>
+      <h2 data-i18n="aiSummarySettings">AI Summary Settings</h2>
 
       <div class="api-key-section">
-        <label for="apiKeyInput">OpenAI API Key:</label>
+        <label for="apiKeyInput" data-i18n="openaiApiKey">OpenAI API Key:</label>
         <div id="apiKeyStatus" class="api-key-status" style="display: none;">
           <span class="status-indicator">✓</span>
-          <span>API Key configured</span>
-          <button id="modifyApiKey" class="modify-btn">Modify</button>
+          <span data-i18n="apiKeyConfigured">API Key configured</span>
+          <button id="modifyApiKey" class="modify-btn" data-i18n="modifyBtn">Modify</button>
         </div>
         <div id="apiKeyInputGroup" class="input-group">
           <input type="password" id="apiKeyInput" placeholder="sk-..." autocomplete="off">
@@ -45,29 +45,29 @@
             👁️
           </button>
         </div>
-        <button id="saveApiKey" class="save-btn">Save API Key</button>
+        <button id="saveApiKey" class="save-btn" data-i18n="saveApiKey">Save API Key</button>
         <p class="api-key-info">
-          <small>Get your API key from <a href="https://platform.openai.com/api-keys" target="_blank">OpenAI</a>. Your
-            key is stored locally and never shared.</small>
+          <small data-i18n="apiKeyInfo">Get your API key from OpenAI. Your key is stored locally and never shared.</small>
         </p>
       </div>
 
       <div class="language-section">
-        <label for="languageSelect">Summary Language:</label>
+        <label for="languageSelect" data-i18n="summaryLanguage">Summary Language:</label>
         <select id="languageSelect" class="language-select">
-          <option value="fr">Français (French)</option>
+          <option value="fr">Français</option>
           <option value="en">English</option>
-          <option value="de">Deutsch (German)</option>
-          <option value="es">Español (Spanish)</option>
+          <option value="de">Deutsch</option>
+          <option value="es">Español</option>
         </select>
       </div>
     </div>
 
     <div class="info">
-      <p>Make sure you're on a YouTube video page with captions available.</p>
+      <p data-i18n="makeInfo">Make sure you're on a YouTube video page with captions available.</p>
     </div>
   </div>
 
+  <script src="i18n.js"></script>
   <script src="openai-summary.js"></script>
   <script src="popup.js"></script>
 </body>

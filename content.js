@@ -1069,10 +1069,7 @@ function showSettingsModal() {
 
   const sponsorTextContainer = document.createElement('div');
   sponsorTextContainer.innerHTML = `
-    <div style="font-weight: 500; font-family: Roboto, Arial, sans-serif; color: var(--yt-spec-text-primary);">Skip sponsor segments</div>
-    <div style="font-size: 13px; color: var(--yt-spec-text-secondary); margin-top: 4px; font-family: Roboto, Arial, sans-serif;">
-      AI will ignore sponsored content in summaries
-    </div>
+    <div style="font-weight: 500; font-family: Roboto, Arial, sans-serif; color: var(--yt-spec-text-primary);">${window.i18n.t('skipSponsorSegments')}</div>
   `;
 
   // Simple toggle button
@@ -1395,7 +1392,7 @@ async function autoDetectAndSkipSponsors(indicator) {
       <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; fill: currentColor; margin-right: 4px;">
         <path d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4M12,10.5A1.5,1.5 0 0,0 10.5,12A1.5,1.5 0 0,0 12,13.5A1.5,1.5 0 0,0 13.5,12A1.5,1.5 0 0,0 12,10.5Z"/>
       </svg>
-      <span>Skip disabled</span>
+      <span>${window.i18n.t('skipDisabled')}</span>
     `;
     indicator.style.background = 'rgba(128, 128, 128, 0.15)';
     indicator.style.color = '#888';
@@ -1426,7 +1423,7 @@ async function autoDetectAndSkipSponsors(indicator) {
       <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; fill: currentColor; margin-right: 4px;">
         <path d="M13,13H11V7H13M13,17H11V15H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z"/>
       </svg>
-      <span>No API key</span>
+      <span>${window.i18n.t('noApiKey')}</span>
     `;
     indicator.style.background = 'rgba(255, 0, 0, 0.1)';
     indicator.style.color = '#ff6b6b';
@@ -1458,7 +1455,7 @@ async function autoDetectAndSkipSponsors(indicator) {
         <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; fill: currentColor; margin-right: 4px;">
           <path d="M12,2A10,10 0 0,1 22,12A10,10 0 0,1 12,22A10,10 0 0,1 2,12A10,10 0 0,1 12,2M12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20A8,8 0 0,0 20,12A8,8 0 0,0 12,4M11,16.5L6.5,12L7.91,10.59L11,13.67L16.59,8.09L18,9.5L11,16.5Z"/>
         </svg>
-        <span>No sponsors</span>
+        <span>${window.i18n.t('noSponsors')}</span>
       `;
       indicator.style.background = 'rgba(0, 200, 0, 0.1)';
       indicator.style.color = '#4ade80';
@@ -1481,7 +1478,7 @@ async function autoDetectAndSkipSponsors(indicator) {
       <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; fill: currentColor; margin-right: 4px;">
         <path d="M6,18L14.5,12L6,6M16,6V18H18V6"/>
       </svg>
-      <span title="${segmentsList}">Skip sponsors: ${segmentsList}</span>
+      <span title="${segmentsList}">${window.i18n.t('skipSponsors')}: ${segmentsList}</span>
     `;
     indicator.style.background = 'rgba(204, 0, 0, 0.15)';
     indicator.style.color = '#ff4444';
@@ -1527,7 +1524,7 @@ async function autoDetectAndSkipSponsors(indicator) {
       <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; fill: currentColor; margin-right: 4px;">
         <path d="M13,13H11V7H13M13,17H11V15H13M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z"/>
       </svg>
-      <span>Detection failed</span>
+      <span>${window.i18n.t('detectionFailed')}</span>
     `;
     indicator.style.background = 'rgba(255, 165, 0, 0.15)';
     indicator.style.color = '#ffa500';
@@ -1565,7 +1562,7 @@ function showSkipNotification(segment) {
   notification.id = 'sponsor-skip-notification';
   notification.innerHTML = `
     <span style="background: #ff0000; padding: 4px 6px; border-radius: 2px; margin-right: 10px; font-size: 11px;">⏭</span>
-    <span>Sponsor skipped</span>
+    <span>${window.i18n.t('sponsorSkipped')}</span>
     <span style="margin-left: 8px; color: rgba(255,255,255,0.7);">(+${duration}s)</span>
     <span class="sponsor-notif-close" style="margin-left: 14px; opacity: 0.6; font-size: 18px; line-height: 1;">&times;</span>
   `;
@@ -1740,9 +1737,9 @@ function addDownloadButton() {
           <path d="m10.75 8.75v1.5m-5.5-1.5v1.5m-.5-7.5 3.25 3 3.25-3"></path>
         </svg>`,
           options: [
-            { value: 'detailed', label: 'Detailed summary', description: 'Comprehensive overview' },
-            { value: 'bullets', label: 'Bullet points', description: 'Key highlights and takeaways' },
-            { value: 'express', label: 'Ultra-short summary', description: '1-3 sentence overview' }
+            { value: 'detailed', label: window.i18n.t('detailedSummary'), description: window.i18n.t('comprehensiveOverview') },
+            { value: 'bullets', label: window.i18n.t('bulletPoints'), description: window.i18n.t('keyHighlights') },
+            { value: 'express', label: window.i18n.t('ultraShortSummary'), description: window.i18n.t('sentenceOverview') }
           ],
         onSelect: async (value) => {
           await handleSummarize(true, value);
@@ -1753,14 +1750,14 @@ function addDownloadButton() {
       // Create Transcript dropdown button
       const transcriptDropdown = createDropdownButton({
           id: 'transcript-download-dropdown',
-          label: 'Transcript',
+          label: window.i18n.t('transcript'),
           icon: `<svg viewBox="0 0 24 24" style="width: 16px; height: 16px; fill: currentColor;">
             <path d="M5,20H19V18H5M19,9H15V3H9V9H5L12,16L19,9Z"/>
           </svg>`,
           options: [
-            { value: 'with-timestamps', label: 'Download with timestamps', description: '' },
-            { value: 'without-timestamps', label: 'Download without timestamps', description: '' },
-            { value: 'copy', label: 'Copy to clipboard', description: '' }
+            { value: 'with-timestamps', label: window.i18n.t('downloadWithTimestamps'), description: '' },
+            { value: 'without-timestamps', label: window.i18n.t('downloadWithoutTimestamps'), description: '' },
+            { value: 'copy', label: window.i18n.t('copyToClipboard'), description: '' }
           ],
           onSelect: async (value) => {
             if (value === 'with-timestamps' || value === 'without-timestamps') {
@@ -1795,7 +1792,7 @@ function addDownloadButton() {
                   <svg viewBox="0 0 24 24" style="width: 16px; height: 16px; fill: #0f0; margin-right: 4px;">
                     <path d="M9,20.42L2.79,14.21L5.62,11.38L9,14.77L18.88,4.88L21.71,7.71L9,20.42Z"/>
                   </svg>
-                  Copied!
+                  ${window.i18n.t('copied')}
                   <svg viewBox="0 0 24 24" style="width: 12px; height: 12px; fill: currentColor; margin-left: 4px;">
                     <path d="M7,10L12,15L17,10H7Z"/>
                   </svg>
@@ -1818,7 +1815,7 @@ function addDownloadButton() {
         <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; fill: currentColor; margin-right: 4px; animation: spin 1s linear infinite;">
           <path d="M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z"/>
         </svg>
-        <span>Detecting sponsors...</span>
+        <span>${window.i18n.t('detectingSponsors')}</span>
       `;
       sponsorIndicator.style.cssText = `
         display: flex;
@@ -1903,7 +1900,7 @@ if (!window.transcriptDownloaderInitialized) {
           <svg viewBox="0 0 24 24" style="width: 14px; height: 14px; fill: currentColor; margin-right: 4px; animation: spin 1s linear infinite;">
             <path d="M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z"/>
           </svg>
-          <span>Detecting sponsors...</span>
+          <span>${window.i18n.t('detectingSponsors')}</span>
         `;
         indicator.style.background = 'rgba(255, 165, 0, 0.2)';
         indicator.style.color = '#ffa500';

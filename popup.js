@@ -1,6 +1,18 @@
 // Popup script to handle user interactions
 
 document.addEventListener('DOMContentLoaded', function() {
+  // Apply translations
+  function applyTranslations() {
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+      const key = el.getAttribute('data-i18n');
+      const translation = window.i18n.t(key);
+      if (translation && translation !== key) {
+        el.textContent = translation;
+      }
+    });
+  }
+  applyTranslations();
+
   const downloadBtn = document.getElementById('downloadBtn');
   const statusDiv = document.getElementById('status');
   const includeTimestampsCheckbox = document.getElementById('includeTimestamps');
@@ -85,7 +97,7 @@ document.addEventListener('DOMContentLoaded', function() {
       setStatus('API key saved successfully!', 'success');
       showApiKeyStatus();
       setTimeout(() => {
-        setStatus('Ready to download transcript', '');
+        setStatus(window.i18n.t('readyStatus'), '');
       }, 2000);
     } catch (error) {
       setStatus('Failed to save API key', 'error');
@@ -110,7 +122,7 @@ document.addEventListener('DOMContentLoaded', function() {
     chrome.storage.sync.set({ summaryLanguage: this.value });
     setStatus('Language preference saved', 'success');
     setTimeout(() => {
-      setStatus('Ready to download transcript', '');
+      setStatus(window.i18n.t('readyStatus'), '');
     }, 1500);
   });
 

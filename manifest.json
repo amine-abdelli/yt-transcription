@@ -19,7 +19,7 @@
   "content_scripts": [
     {
       "matches": ["https://www.youtube.com/watch*"],
-      "js": ["openai-summary.js", "content.js"],
+      "js": ["i18n.js", "openai-summary.js", "content.js"],
       "run_at": "document_idle"
     }
   ]
