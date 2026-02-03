@@ -1551,54 +1551,66 @@ function showSkipNotification(segment) {
   const existing = document.getElementById('sponsor-skip-notification');
   if (existing) existing.remove();
 
+  // Find the movie player (has position:relative)
+  const moviePlayer = document.querySelector('#movie_player');
+  if (!moviePlayer) {
+    console.warn('[Transcript Downloader] Movie player not found for notification');
+    return;
+  }
+
   // Calculate skipped duration
   const duration = Math.round(segment.end - segment.start);
 
   const notification = document.createElement('div');
   notification.id = 'sponsor-skip-notification';
   notification.innerHTML = `
-    <svg viewBox="0 0 24 24" style="width: 18px; height: 18px; fill: #4ade80; margin-right: 8px;">
-      <path d="M6,18L14.5,12L6,6M16,6V18H18V6"/>
-    </svg>
+    <span style="background: #ff0000; padding: 4px 6px; border-radius: 2px; margin-right: 10px; font-size: 11px;">⏭</span>
     <span>Sponsor skipped</span>
-    <span style="margin-left: 8px; background: rgba(74, 222, 128, 0.2); padding: 2px 8px; border-radius: 4px; font-weight: 500; color: #4ade80;">+${duration}s</span>
+    <span style="margin-left: 8px; color: rgba(255,255,255,0.7);">(+${duration}s)</span>
+    <span class="sponsor-notif-close" style="margin-left: 14px; opacity: 0.6; font-size: 18px; line-height: 1;">&times;</span>
   `;
   notification.style.cssText = `
-    position: fixed;
-    bottom: 80px;
-    right: 20px;
-    background: rgba(0, 0, 0, 0.85);
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background: rgba(33, 33, 33, 0.95);
     color: white;
-    padding: 10px 16px;
-    border-radius: 8px;
-    font-family: "Roboto", Arial, sans-serif;
-    font-size: 13px;
+    padding: 10px 14px;
+    border-radius: 2px;
+    font-family: "YouTube Sans", "Roboto", Arial, sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    z-index: 9999;
     display: flex;
     align-items: center;
-    z-index: 10000;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    animation: slideIn 2.5s ease-in-out;
+    cursor: pointer;
+    transition: opacity 0.3s;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.3);
   `;
 
-  // Add animation style if not present
-  if (!document.getElementById('skip-notification-style')) {
-    const style = document.createElement('style');
-    style.id = 'skip-notification-style';
-    style.textContent = `
-      @keyframes slideIn {
-        0% { opacity: 0; transform: translateX(100px); }
-        10% { opacity: 1; transform: translateX(0); }
-        90% { opacity: 1; transform: translateX(0); }
-        100% { opacity: 0; transform: translateX(100px); }
-      }
-    `;
-    document.head.appendChild(style);
-  }
+  // Click anywhere to close
+  notification.addEventListener('click', () => {
+    notification.style.opacity = '0';
+    setTimeout(() => notification.remove(), 300);
+  });
 
-  document.body.appendChild(notification);
+  // Hover effect
+  notification.addEventListener('mouseenter', () => {
+    notification.querySelector('.sponsor-notif-close').style.opacity = '1';
+  });
+  notification.addEventListener('mouseleave', () => {
+    notification.querySelector('.sponsor-notif-close').style.opacity = '0.5';
+  });
 
-  // Remove after animation
-  setTimeout(() => notification.remove(), 2500);
+  moviePlayer.appendChild(notification);
+
+  // Auto-remove after 4 seconds
+  setTimeout(() => {
+    if (notification.parentNode) {
+      notification.style.opacity = '0';
+      setTimeout(() => notification.remove(), 300);
+    }
+  }, 4000);
 }
 
 // Add download button below the video player
