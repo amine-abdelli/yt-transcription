@@ -1,75 +1,170 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>YouTube Transcript Downloader</title>
-  <link rel="stylesheet" href="popup.css">
+  <title>Recap</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 300px;
+      font-family: "Roboto", Arial, sans-serif;
+      font-size: 13px;
+      background: #0f0f0f;
+      color: #f1f1f1;
+      padding: 16px;
+    }
+    h1 {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    h1 svg { color: #ff4444; }
+    label {
+      display: block;
+      font-size: 11px;
+      color: #aaa;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .field { margin-bottom: 14px; }
+    .input-row {
+      display: flex;
+      gap: 6px;
+    }
+    input[type="password"], input[type="text"] {
+      flex: 1;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 6px;
+      color: #f1f1f1;
+      font-size: 13px;
+      padding: 8px 10px;
+      outline: none;
+      min-width: 0;
+    }
+    input:focus { border-color: #ff4444; }
+    button {
+      background: #ff4444;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 14px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    button:hover { background: #cc0000; }
+    button.secondary {
+      background: #2a2a2a;
+      color: #ccc;
+    }
+    button.secondary:hover { background: #333; }
+    .status {
+      font-size: 12px;
+      margin-top: 6px;
+      min-height: 16px;
+      color: #4ade80;
+    }
+    .status.error { color: #ff6b6b; }
+    select {
+      width: 100%;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 6px;
+      color: #f1f1f1;
+      font-size: 13px;
+      padding: 8px 10px;
+      outline: none;
+      cursor: pointer;
+    }
+    select:focus { border-color: #ff4444; }
+    .divider {
+      border: none;
+      border-top: 1px solid #222;
+      margin: 14px 0;
+    }
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .toggle-label { color: #ccc; }
+    input[type="checkbox"] { accent-color: #ff4444; width: 16px; height: 16px; cursor: pointer; }
+    .configured-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 6px;
+      padding: 8px 10px;
+    }
+    .configured-row .check { color: #4ade80; font-size: 15px; }
+    .configured-row .key-label { flex: 1; color: #aaa; font-size: 12px; }
+  </style>
 </head>
-
 <body>
-  <div class="container">
-    <h1 data-i18n="title">YouTube Transcript Downloader</h1>
+  <h1>
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+      <path d="M12 2l1.5 5L18 8.5 13.5 10 12 15l-1.5-5L6 8.5 10.5 7z"/>
+    </svg>
+    <span data-i18n="title">Recap Settings</span>
+  </h1>
 
-    <div class="status" id="status" data-i18n="readyStatus">
-      Ready to download transcript
+  <div class="field" id="apiKeyField">
+    <label for="apiKeyInput" data-i18n="apiKeyLabel">OpenAI API Key</label>
+    <div id="configuredRow" class="configured-row" style="display:none;">
+      <span class="check">✓</span>
+      <span class="key-label" data-i18n="apiKeyConfigured">API key configured</span>
+      <button class="secondary" id="modifyBtn" style="padding:4px 10px;font-size:12px;" data-i18n="modifyBtn">Modify</button>
     </div>
-
-    <div class="option">
-      <label>
-        <input type="checkbox" id="includeTimestamps" checked>
-        <span data-i18n="includeTimestamps">Include timestamps</span>
-      </label>
+    <div id="inputRow" class="input-row">
+      <input type="password" id="apiKeyInput" data-i18n-placeholder="apiKeyPlaceholder" placeholder="sk-…" autocomplete="off">
+      <button id="toggleBtn" class="secondary" style="padding:8px 10px;">👁</button>
     </div>
+    <button id="saveBtn" style="margin-top:8px;width:100%;" data-i18n="saveBtn">Save API Key</button>
+    <div class="status" id="apiStatus"></div>
+  </div>
 
-    <button id="downloadBtn" class="download-btn" data-i18n="downloadBtn">
-      Download Transcript
-    </button>
+  <hr class="divider">
 
-    <div class="divider"></div>
+  <div class="field">
+    <label for="uiLanguageSelect" data-i18n="uiLanguageLabel">Interface language</label>
+    <select id="uiLanguageSelect">
+      <option value="en">English</option>
+      <option value="fr">Français</option>
+      <option value="es">Español</option>
+      <option value="de">Deutsch</option>
+    </select>
+  </div>
 
-    <div class="settings-section">
-      <h2 data-i18n="aiSummarySettings">AI Summary Settings</h2>
+  <hr class="divider">
 
-      <div class="api-key-section">
-        <label for="apiKeyInput" data-i18n="openaiApiKey">OpenAI API Key:</label>
-        <div id="apiKeyStatus" class="api-key-status" style="display: none;">
-          <span class="status-indicator">✓</span>
-          <span data-i18n="apiKeyConfigured">API Key configured</span>
-          <button id="modifyApiKey" class="modify-btn" data-i18n="modifyBtn">Modify</button>
-        </div>
-        <div id="apiKeyInputGroup" class="input-group">
-          <input type="password" id="apiKeyInput" placeholder="sk-..." autocomplete="off">
-          <button id="toggleApiKey" class="icon-btn" title="Show/Hide API Key">
-            👁️
-          </button>
-        </div>
-        <button id="saveApiKey" class="save-btn" data-i18n="saveApiKey">Save API Key</button>
-        <p class="api-key-info">
-          <small data-i18n="apiKeyInfo">Get your API key from OpenAI. Your key is stored locally and never shared.</small>
-        </p>
-      </div>
+  <div class="field">
+    <label for="languageSelect" data-i18n="summaryLanguageLabel">Summary language</label>
+    <select id="languageSelect">
+      <option value="fr">Français</option>
+      <option value="en">English</option>
+      <option value="de">Deutsch</option>
+      <option value="es">Español</option>
+    </select>
+  </div>
 
-      <div class="language-section">
-        <label for="languageSelect" data-i18n="summaryLanguage">Summary Language:</label>
-        <select id="languageSelect" class="language-select">
-          <option value="fr">Français</option>
-          <option value="en">English</option>
-          <option value="de">Deutsch</option>
-          <option value="es">Español</option>
-        </select>
-      </div>
-    </div>
+  <hr class="divider">
 
-    <div class="info">
-      <p data-i18n="makeInfo">Make sure you're on a YouTube video page with captions available.</p>
+  <div class="field">
+    <div class="toggle-row">
+      <span class="toggle-label" data-i18n="filterSponsorsLabel">Auto-skip sponsors</span>
+      <input type="checkbox" id="filterSponsors" checked>
     </div>
   </div>
 
-  <script src="i18n.js"></script>
-  <script src="openai-summary.js"></script>
   <script src="popup.js"></script>
 </body>
-
 </html>

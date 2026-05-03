@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "YouTube Transcript Downloader",
-  "version": "1.0.0",
-  "description": "Download YouTube video transcriptions as text files with optional timestamps",
+  "version": "1.1.0",
+  "description": "Download YouTube transcripts and generate Recap-style inline summaries with per-claim fact-checking",
   "permissions": [
     "activeTab",
     "scripting",
@@ -19,7 +19,14 @@
   "content_scripts": [
     {
       "matches": ["https://www.youtube.com/watch*"],
-      "js": ["i18n.js", "openai-summary.js", "content.js"],
+      "js": [
+        "openai-summary.js",
+        "recap-api.js",
+        "panel.js",
+        "content.js",
+        "recap-orchestrator.js"
+      ],
+      "css": ["panel.css"],
       "run_at": "document_idle"
     }
   ]

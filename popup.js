@@ -1,213 +1,152 @@
-// Popup script to handle user interactions
+const TRANSLATIONS = {
+  en: {
+    title: 'Recap Settings',
+    apiKeyLabel: 'OpenAI API Key',
+    apiKeyConfigured: 'API key configured',
+    apiKeyPlaceholder: 'sk-…',
+    modifyBtn: 'Modify',
+    saveBtn: 'Save API Key',
+    uiLanguageLabel: 'Interface language',
+    summaryLanguageLabel: 'Summary language',
+    filterSponsorsLabel: 'Auto-skip sponsors',
+    errorEmpty: 'Enter an API key.',
+    errorFormat: 'Invalid key format (should start with sk-).',
+    saved: 'Saved!',
+  },
+  fr: {
+    title: 'Paramètres Recap',
+    apiKeyLabel: 'Clé API OpenAI',
+    apiKeyConfigured: 'Clé API configurée',
+    apiKeyPlaceholder: 'sk-…',
+    modifyBtn: 'Modifier',
+    saveBtn: 'Enregistrer la clé',
+    uiLanguageLabel: 'Langue de l\'interface',
+    summaryLanguageLabel: 'Langue des résumés',
+    filterSponsorsLabel: 'Ignorer les sponsors',
+    errorEmpty: 'Entrez une clé API.',
+    errorFormat: 'Format invalide (doit commencer par sk-).',
+    saved: 'Enregistré !',
+  },
+  es: {
+    title: 'Ajustes de Recap',
+    apiKeyLabel: 'Clave API de OpenAI',
+    apiKeyConfigured: 'Clave API configurada',
+    apiKeyPlaceholder: 'sk-…',
+    modifyBtn: 'Modificar',
+    saveBtn: 'Guardar clave',
+    uiLanguageLabel: 'Idioma de la interfaz',
+    summaryLanguageLabel: 'Idioma de los resúmenes',
+    filterSponsorsLabel: 'Omitir patrocinadores',
+    errorEmpty: 'Introduce una clave API.',
+    errorFormat: 'Formato inválido (debe empezar por sk-).',
+    saved: '¡Guardado!',
+  },
+  de: {
+    title: 'Recap-Einstellungen',
+    apiKeyLabel: 'OpenAI API-Schlüssel',
+    apiKeyConfigured: 'API-Schlüssel konfiguriert',
+    apiKeyPlaceholder: 'sk-…',
+    modifyBtn: 'Ändern',
+    saveBtn: 'Schlüssel speichern',
+    uiLanguageLabel: 'Oberflächensprache',
+    summaryLanguageLabel: 'Zusammenfassungssprache',
+    filterSponsorsLabel: 'Sponsoren überspringen',
+    errorEmpty: 'Bitte API-Schlüssel eingeben.',
+    errorFormat: 'Ungültiges Format (muss mit sk- beginnen).',
+    saved: 'Gespeichert!',
+  },
+};
 
-document.addEventListener('DOMContentLoaded', function() {
-  // Apply translations
-  function applyTranslations() {
+document.addEventListener('DOMContentLoaded', function () {
+  const apiKeyInput = document.getElementById('apiKeyInput');
+  const toggleBtn = document.getElementById('toggleBtn');
+  const saveBtn = document.getElementById('saveBtn');
+  const modifyBtn = document.getElementById('modifyBtn');
+  const configuredRow = document.getElementById('configuredRow');
+  const inputRow = document.getElementById('inputRow');
+  const apiStatus = document.getElementById('apiStatus');
+  const languageSelect = document.getElementById('languageSelect');
+  const uiLanguageSelect = document.getElementById('uiLanguageSelect');
+  const filterSponsors = document.getElementById('filterSponsors');
+
+  let currentLang = 'en';
+
+  function applyTranslations(lang) {
+    currentLang = lang;
+    const t = TRANSLATIONS[lang] || TRANSLATIONS.en;
     document.querySelectorAll('[data-i18n]').forEach(el => {
-      const key = el.getAttribute('data-i18n');
-      const translation = window.i18n.t(key);
-      if (translation && translation !== key) {
-        el.textContent = translation;
-      }
+      const key = el.dataset.i18n;
+      if (t[key] != null) el.textContent = t[key];
+    });
+    document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+      const key = el.dataset.i18nPlaceholder;
+      if (t[key] != null) el.placeholder = t[key];
     });
   }
-  applyTranslations();
 
-  const downloadBtn = document.getElementById('downloadBtn');
-  const statusDiv = document.getElementById('status');
-  const includeTimestampsCheckbox = document.getElementById('includeTimestamps');
+  // Load saved settings
+  chrome.storage.sync.get(['openaiApiKey', 'summaryLanguage', 'filterSponsors', 'uiLanguage'], result => {
+    const uiLang = result.uiLanguage || 'en';
+    uiLanguageSelect.value = uiLang;
+    applyTranslations(uiLang);
 
-  // Load saved preference for timestamps
-  chrome.storage.sync.get(['includeTimestamps'], function(result) {
-    if (result.includeTimestamps !== undefined) {
-      includeTimestampsCheckbox.checked = result.includeTimestamps;
-    }
+    if (result.openaiApiKey) showConfigured();
+    else showInput();
+
+    if (result.summaryLanguage) languageSelect.value = result.summaryLanguage;
+    filterSponsors.checked = result.filterSponsors !== false;
   });
 
-  // Save preference when changed
-  includeTimestampsCheckbox.addEventListener('change', function() {
-    chrome.storage.sync.set({ includeTimestamps: this.checked });
-  });
-
-  // API Key management
-  const apiKeyInput = document.getElementById('apiKeyInput');
-  const toggleApiKeyBtn = document.getElementById('toggleApiKey');
-  const saveApiKeyBtn = document.getElementById('saveApiKey');
-  const apiKeyStatus = document.getElementById('apiKeyStatus');
-  const apiKeyInputGroup = document.getElementById('apiKeyInputGroup');
-  const modifyApiKeyBtn = document.getElementById('modifyApiKey');
-
-  // Load saved API key
-  chrome.storage.sync.get(['openaiApiKey'], function(result) {
-    if (result.openaiApiKey) {
-      apiKeyInput.value = result.openaiApiKey;
-      showApiKeyStatus();
-    } else {
-      showApiKeyInput();
-    }
-  });
-
-  // Show API key status (when key is already set)
-  function showApiKeyStatus() {
-    apiKeyStatus.style.display = 'flex';
-    apiKeyInputGroup.style.display = 'none';
-    saveApiKeyBtn.style.display = 'none';
+  function showConfigured() {
+    configuredRow.style.display = 'flex';
+    inputRow.style.display = 'none';
+    saveBtn.style.display = 'none';
   }
 
-  // Show API key input (for new or modifying)
-  function showApiKeyInput() {
-    apiKeyStatus.style.display = 'none';
-    apiKeyInputGroup.style.display = 'flex';
-    saveApiKeyBtn.style.display = 'block';
+  function showInput() {
+    configuredRow.style.display = 'none';
+    inputRow.style.display = 'flex';
+    saveBtn.style.display = 'block';
   }
 
-  // Modify button click
-  modifyApiKeyBtn.addEventListener('click', function() {
-    showApiKeyInput();
+  modifyBtn.addEventListener('click', () => {
+    showInput();
     apiKeyInput.focus();
   });
 
-  // Toggle API key visibility
-  toggleApiKeyBtn.addEventListener('click', function() {
-    if (apiKeyInput.type === 'password') {
-      apiKeyInput.type = 'text';
-      toggleApiKeyBtn.textContent = '🙈';
-    } else {
-      apiKeyInput.type = 'password';
-      toggleApiKeyBtn.textContent = '👁️';
-    }
+  toggleBtn.addEventListener('click', () => {
+    const isPassword = apiKeyInput.type === 'password';
+    apiKeyInput.type = isPassword ? 'text' : 'password';
+    toggleBtn.textContent = isPassword ? '🙈' : '👁';
   });
 
-  // Save API key
-  saveApiKeyBtn.addEventListener('click', async function() {
-    const apiKey = apiKeyInput.value.trim();
-
-    if (!apiKey) {
-      setStatus('Please enter an API key', 'error');
-      return;
-    }
-
-    if (!apiKey.startsWith('sk-')) {
-      setStatus('Invalid API key format. Should start with "sk-"', 'error');
-      return;
-    }
-
-    try {
-      await chrome.storage.sync.set({ openaiApiKey: apiKey });
-      setStatus('API key saved successfully!', 'success');
-      showApiKeyStatus();
-      setTimeout(() => {
-        setStatus(window.i18n.t('readyStatus'), '');
-      }, 2000);
-    } catch (error) {
-      setStatus('Failed to save API key', 'error');
-    }
+  saveBtn.addEventListener('click', async () => {
+    const key = apiKeyInput.value.trim();
+    const t = TRANSLATIONS[currentLang] || TRANSLATIONS.en;
+    if (!key) { setStatus(t.errorEmpty, true); return; }
+    if (!key.startsWith('sk-')) { setStatus(t.errorFormat, true); return; }
+    await chrome.storage.sync.set({ openaiApiKey: key });
+    setStatus(t.saved, false);
+    showConfigured();
+    setTimeout(() => setStatus(''), 2000);
   });
 
-  // Language selection management
-  const languageSelect = document.getElementById('languageSelect');
-
-  // Load saved language preference
-  chrome.storage.sync.get(['summaryLanguage'], function(result) {
-    if (result.summaryLanguage) {
-      languageSelect.value = result.summaryLanguage;
-    } else {
-      // Default to French
-      languageSelect.value = 'fr';
-    }
+  uiLanguageSelect.addEventListener('change', () => {
+    const lang = uiLanguageSelect.value;
+    chrome.storage.sync.set({ uiLanguage: lang });
+    applyTranslations(lang);
   });
 
-  // Save language preference when changed
-  languageSelect.addEventListener('change', function() {
-    chrome.storage.sync.set({ summaryLanguage: this.value });
-    setStatus('Language preference saved', 'success');
-    setTimeout(() => {
-      setStatus(window.i18n.t('readyStatus'), '');
-    }, 1500);
+  languageSelect.addEventListener('change', () => {
+    chrome.storage.sync.set({ summaryLanguage: languageSelect.value });
   });
 
-  downloadBtn.addEventListener('click', async function() {
-    try {
-      // Check if we're on a YouTube video page
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
-      if (!tab.url || !tab.url.includes('youtube.com/watch')) {
-        setStatus('Please navigate to a YouTube video page.', 'error');
-        return;
-      }
-
-      setStatus('Extracting transcript...', 'loading');
-      downloadBtn.disabled = true;
-
-      const includeTimestamps = includeTimestampsCheckbox.checked;
-
-      // Ensure content script is injected
-      try {
-        await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          files: ['content.js']
-        });
-      } catch (injectionError) {
-        // Content script might already be injected, ignore error
-        console.log('Content script injection:', injectionError.message);
-      }
-
-      // Wait a moment for content script to initialize
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      // Send message to content script
-      const response = await chrome.tabs.sendMessage(tab.id, {
-        action: 'getTranscript',
-        includeTimestamps: includeTimestamps
-      });
-
-      if (response && response.success) {
-        // Download the transcript as a text file
-        downloadTranscript(response.transcript, response.title);
-        setStatus('Transcript downloaded successfully!', 'success');
-      } else {
-        setStatus(response?.error || 'Failed to extract transcript.', 'error');
-      }
-
-    } catch (error) {
-      if (error.message.includes('Receiving end does not exist')) {
-        setStatus('Please refresh the YouTube page and try again.', 'error');
-      } else {
-        setStatus('Error: ' + error.message, 'error');
-      }
-      console.error('Download error:', error);
-    } finally {
-      downloadBtn.disabled = false;
-    }
+  filterSponsors.addEventListener('change', () => {
+    chrome.storage.sync.set({ filterSponsors: filterSponsors.checked });
   });
 
-  function setStatus(message, type) {
-    statusDiv.textContent = message;
-    statusDiv.className = 'status ' + type;
-  }
-
-  function downloadTranscript(content, videoTitle) {
-    // Clean the title for use as filename
-    const safeTitle = videoTitle
-      .replace(/[^a-z0-9]/gi, '_')
-      .replace(/_+/g, '_')
-      .substring(0, 100);
-
-    const filename = `transcript_${safeTitle}.txt`;
-
-    // Create a blob and download it
-    const blob = new Blob([content], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-
-    chrome.downloads.download({
-      url: url,
-      filename: filename,
-      saveAs: true
-    }, function(downloadId) {
-      // Clean up the URL after download starts
-      if (downloadId) {
-        URL.revokeObjectURL(url);
-      }
-    });
+  function setStatus(msg, isError = false) {
+    apiStatus.textContent = msg;
+    apiStatus.className = 'status' + (isError ? ' error' : '');
   }
 });
