@@ -34,7 +34,13 @@
     save: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg>',
     translate: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 8l6 6M4 14l6-6 2-3M2 5h12M7 2h1M22 22l-5-10-5 10M14 18h6"/></svg>',
     regen: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>',
-    play: '<svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>'
+    play: '<svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>',
+    settings: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v2m0 14v2M3 12h2m14 0h2m-2.6-6.4l-1.4 1.4M7 17l-1.4 1.4m0-12.8L7 7m10 10l1.4 1.4"/></svg>',
+    info: '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v.01M12 11v6"/></svg>',
+    eye: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
+    extension: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M5 8h4V4h6v4h4v6h-4v6H9v-6H5V8z"/></svg>',
+    external: '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4l-9 9M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4"/></svg>',
+    refresh: '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11A8 8 0 005 6.5M4 13a8 8 0 0015 4.5M4 4v4h4M20 20v-4h-4"/></svg>'
   };
 
   const VERDICTS = {
@@ -115,9 +121,375 @@
         category ? el('span', { class: 'recap-tag' }, category) : null
       ),
       el('div', { class: 'recap-head-actions' },
+        el('button', { class: 'recap-icon-btn', title: 'Settings', html: ICONS.settings, onclick: () => openSettings() }),
         el('button', { class: 'recap-icon-btn', title: 'Close', html: ICONS.close, onclick: () => api.close() })
       )
     );
+  }
+
+  // ---------- Settings modal ------------------------------------------------
+  let settingsOverlay = null;
+
+  function openSettings() {
+    if (settingsOverlay) return;
+    const storage = (window.chrome && chrome.storage && chrome.storage.sync) ? chrome.storage.sync : null;
+
+    // Defaults; will be overwritten by storage on load
+    let state = {
+      openaiApiKey: '',
+      summaryLanguage: 'fr',
+      uiLanguage: 'en',
+      filterSponsors: true,
+    };
+    let keyTouched = false;
+    let activeTab = 'api';
+
+    settingsOverlay = el('div', { class: 'recap-set-overlay', 'data-theme': currentTheme, onclick: closeSettings });
+    const modal = el('div', { class: 'recap-set-modal', onclick: (e) => e.stopPropagation() });
+    settingsOverlay.appendChild(modal);
+    document.body.appendChild(settingsOverlay);
+
+    function render() {
+      modal.innerHTML = '';
+
+      // Header
+      modal.appendChild(el('header', { class: 'recap-set-head' },
+        el('div', { class: 'recap-set-title-wrap' },
+          el('span', { class: 'recap-set-title-icon', html: ICONS.settings }),
+          el('h2', { class: 'recap-set-title' }, 'Recap settings')
+        ),
+        el('button', {
+          class: 'recap-set-close', title: 'Close', html: ICONS.close,
+          onclick: closeSettings
+        })
+      ));
+
+      // Body (sidebar + panel)
+      const body = el('div', { class: 'recap-set-body' });
+
+      // Sidebar tabs
+      const nav = el('nav', { class: 'recap-set-nav' });
+      [
+        { v: 'api',     l: 'API key',         icon: ICONS.sparkle },
+        { v: 'summary', l: 'Summaries',       icon: ICONS.extension },
+        { v: 'privacy', l: 'Privacy & data',  icon: ICONS.info },
+        { v: 'about',   l: 'About',           icon: ICONS.question },
+      ].forEach(t => {
+        nav.appendChild(el('button', {
+          class: 'recap-set-nav-item' + (activeTab === t.v ? ' on' : ''),
+          html: t.icon + '<span>' + t.l + '</span>',
+          onclick: () => { activeTab = t.v; render(); }
+        }));
+      });
+      body.appendChild(nav);
+
+      // Panel
+      const panelEl = el('div', { class: 'recap-set-panel' });
+      if (activeTab === 'api') panelEl.appendChild(renderApiTab());
+      if (activeTab === 'summary') panelEl.appendChild(renderSummaryTab());
+      if (activeTab === 'privacy') panelEl.appendChild(renderPrivacyTab());
+      if (activeTab === 'about') panelEl.appendChild(renderAboutTab());
+      body.appendChild(panelEl);
+
+      modal.appendChild(body);
+
+      // Footer
+      modal.appendChild(el('footer', { class: 'recap-set-foot' },
+        el('span', { class: 'recap-set-foot-l', html: ICONS.info + '<span>Settings sync to your Chrome account.</span>' }),
+        el('div', { class: 'recap-set-foot-actions' },
+          el('button', { class: 'recap-set-btn ghost', onclick: closeSettings }, 'Done')
+        )
+      ));
+    }
+
+    function renderApiTab() {
+      const wrap = el('div', { class: 'recap-set-groups' });
+
+      // API key group
+      const keyStatus = state.openaiApiKey
+        ? (keyTouched ? 'unsaved' : 'saved')
+        : (keyTouched ? 'unsaved' : 'empty');
+
+      const keyInput = el('input', {
+        type: 'password',
+        placeholder: 'sk-…',
+        value: state.openaiApiKey || '',
+        spellcheck: false,
+        autocomplete: 'off',
+        oninput: (e) => { state.openaiApiKey = e.target.value.trim(); keyTouched = true; updateKeyStatus(); }
+      });
+
+      const eyeBtn = el('button', {
+        class: 'recap-set-key-eye', title: 'Show key', html: ICONS.eye,
+        onclick: (e) => {
+          e.preventDefault();
+          keyInput.type = keyInput.type === 'password' ? 'text' : 'password';
+        }
+      });
+
+      const statusEl = el('span', { class: 'recap-set-key-status status-' + keyStatus });
+
+      function updateKeyStatus() {
+        const s = state.openaiApiKey
+          ? (keyTouched ? 'unsaved' : 'saved')
+          : (keyTouched ? 'unsaved' : 'empty');
+        statusEl.className = 'recap-set-key-status status-' + s;
+        statusEl.innerHTML =
+          s === 'saved'   ? ICONS.check + '<span>Key saved</span>' :
+          s === 'unsaved' ? ICONS.info + '<span>Unsaved changes</span>' :
+          s === 'invalid' ? ICONS.warn + '<span>Invalid format (must start with sk-)</span>' :
+          '';
+        saveBtn.disabled = !state.openaiApiKey || !keyTouched;
+        removeBtn.style.display = state.openaiApiKey || keyInput.value ? '' : 'none';
+      }
+
+      const saveBtn = el('button', {
+        class: 'recap-set-btn primary',
+        html: ICONS.save + '<span>Save key</span>',
+        onclick: () => {
+          if (!state.openaiApiKey) { return; }
+          if (!state.openaiApiKey.startsWith('sk-')) {
+            statusEl.className = 'recap-set-key-status status-invalid';
+            statusEl.innerHTML = ICONS.warn + '<span>Invalid format (must start with sk-)</span>';
+            return;
+          }
+          if (storage) storage.set({ openaiApiKey: state.openaiApiKey });
+          keyTouched = false;
+          updateKeyStatus();
+        }
+      });
+
+      const removeBtn = el('button', {
+        class: 'recap-set-btn danger ghost',
+        html: ICONS.cross + '<span>Remove</span>',
+        onclick: () => {
+          state.openaiApiKey = '';
+          keyInput.value = '';
+          keyTouched = true;
+          if (storage) storage.remove('openaiApiKey');
+          updateKeyStatus();
+        }
+      });
+
+      wrap.appendChild(el('section', { class: 'recap-set-group' },
+        el('header', { class: 'recap-set-group-head' },
+          el('h3', { class: 'recap-set-group-title' }, 'OpenAI API key'),
+          el('p', { class: 'recap-set-group-hint' }, 'Generate a key at platform.openai.com. It\'s stored locally in your browser and never sent to anyone but OpenAI.')
+        ),
+        el('div', { class: 'recap-set-group-body' },
+          el('div', { class: 'recap-set-key' },
+            el('span', { class: 'recap-set-key-prefix', html: ICONS.sparkle }),
+            keyInput,
+            eyeBtn
+          ),
+          el('div', { class: 'recap-set-key-actions' },
+            saveBtn, removeBtn, statusEl
+          )
+        )
+      ));
+
+      // Get a key link
+      wrap.appendChild(el('section', { class: 'recap-set-group' },
+        el('a', {
+          class: 'recap-set-link',
+          href: 'https://platform.openai.com/api-keys',
+          target: '_blank', rel: 'noopener',
+          html: ICONS.external + '<span>Get an OpenAI API key</span>'
+        })
+      ));
+
+      // initial sync
+      setTimeout(updateKeyStatus, 0);
+      return wrap;
+    }
+
+    function renderSummaryTab() {
+      const wrap = el('div', { class: 'recap-set-groups' });
+
+      // Summary language
+      const sumSelect = el('select', { class: 'recap-set-select',
+        onchange: (e) => {
+          state.summaryLanguage = e.target.value;
+          if (storage) storage.set({ summaryLanguage: state.summaryLanguage });
+        }
+      });
+      [
+        { v: 'fr', l: 'Français' },
+        { v: 'en', l: 'English' },
+        { v: 'es', l: 'Español' },
+        { v: 'de', l: 'Deutsch' },
+      ].forEach(o => {
+        const opt = document.createElement('option');
+        opt.value = o.v; opt.textContent = o.l;
+        if (state.summaryLanguage === o.v) opt.selected = true;
+        sumSelect.appendChild(opt);
+      });
+
+      wrap.appendChild(el('section', { class: 'recap-set-group' },
+        el('header', { class: 'recap-set-group-head' },
+          el('h3', { class: 'recap-set-group-title' }, 'Summary language'),
+          el('p', { class: 'recap-set-group-hint' }, 'Language used for the generated summary.')
+        ),
+        el('div', { class: 'recap-set-group-body' }, sumSelect)
+      ));
+
+      // UI language
+      const uiSelect = el('select', { class: 'recap-set-select',
+        onchange: (e) => {
+          state.uiLanguage = e.target.value;
+          if (storage) storage.set({ uiLanguage: state.uiLanguage });
+        }
+      });
+      [
+        { v: 'en', l: 'English' },
+        { v: 'fr', l: 'Français' },
+        { v: 'es', l: 'Español' },
+        { v: 'de', l: 'Deutsch' },
+      ].forEach(o => {
+        const opt = document.createElement('option');
+        opt.value = o.v; opt.textContent = o.l;
+        if (state.uiLanguage === o.v) opt.selected = true;
+        uiSelect.appendChild(opt);
+      });
+
+      wrap.appendChild(el('section', { class: 'recap-set-group' },
+        el('header', { class: 'recap-set-group-head' },
+          el('h3', { class: 'recap-set-group-title' }, 'Interface language')
+        ),
+        el('div', { class: 'recap-set-group-body' }, uiSelect)
+      ));
+
+      // Filter sponsors toggle
+      wrap.appendChild(el('section', { class: 'recap-set-group' },
+        el('header', { class: 'recap-set-group-head' },
+          el('h3', { class: 'recap-set-group-title' }, 'Playback')
+        ),
+        el('div', { class: 'recap-set-group-body' },
+          renderToggle(
+            'Auto-skip sponsors',
+            'Automatically jump past sponsored segments while watching.',
+            state.filterSponsors,
+            (v) => {
+              state.filterSponsors = v;
+              if (storage) storage.set({ filterSponsors: v });
+            }
+          )
+        )
+      ));
+
+      return wrap;
+    }
+
+    function renderPrivacyTab() {
+      const wrap = el('div', { class: 'recap-set-groups' });
+
+      wrap.appendChild(el('section', { class: 'recap-set-group' },
+        el('header', { class: 'recap-set-group-head' },
+          el('h3', { class: 'recap-set-group-title' }, 'Data'),
+          el('p', { class: 'recap-set-group-hint' }, 'Recap stores nothing on its own servers. Settings live in your Chrome account; transcripts and summaries stay on this device.')
+        ),
+        el('div', { class: 'recap-set-group-body' },
+          el('div', { class: 'recap-set-data-row' },
+            el('div', null,
+              el('p', { class: 'recap-set-data-l' }, 'API key'),
+              el('p', { class: 'recap-set-data-s' }, state.openaiApiKey ? 'Configured' : 'Not set')
+            ),
+            el('button', {
+              class: 'recap-set-btn ghost danger',
+              html: ICONS.cross + '<span>Clear</span>',
+              onclick: () => {
+                state.openaiApiKey = '';
+                if (storage) storage.remove('openaiApiKey');
+                render();
+              }
+            })
+          ),
+          el('div', { class: 'recap-set-data-row' },
+            el('div', null,
+              el('p', { class: 'recap-set-data-l danger' }, 'Reset all settings'),
+              el('p', { class: 'recap-set-data-s' }, 'Wipe API key, language and playback preferences.')
+            ),
+            el('button', {
+              class: 'recap-set-btn ghost danger',
+              html: ICONS.refresh + '<span>Reset</span>',
+              onclick: () => {
+                if (storage) storage.clear();
+                state = { openaiApiKey: '', summaryLanguage: 'fr', uiLanguage: 'en', filterSponsors: true };
+                keyTouched = false;
+                render();
+              }
+            })
+          )
+        )
+      ));
+
+      return wrap;
+    }
+
+    function renderAboutTab() {
+      const wrap = el('div', { class: 'recap-set-groups' });
+      wrap.appendChild(el('section', { class: 'recap-set-group' },
+        el('div', { class: 'recap-set-about-head' },
+          el('span', { class: 'recap-logo recap-set-about-logo', html: ICONS.sparkle }),
+          el('div', null,
+            el('p', { class: 'recap-set-about-name' }, 'Recap'),
+            el('p', { class: 'recap-set-about-ver' }, 'YouTube Transcript Downloader · v1.1.0')
+          )
+        ),
+        el('p', { class: 'recap-set-about-note' },
+          'Recap analyzes YouTube transcripts and generates inline summaries with per-claim fact-checking. ' +
+          'It runs entirely in your browser using your own OpenAI API key.'
+        )
+      ));
+      return wrap;
+    }
+
+    function renderToggle(label, desc, value, onChange) {
+      const sw = el('span', {
+        class: 'recap-set-switch' + (value ? ' on' : ''),
+        role: 'switch',
+        'aria-checked': value ? 'true' : 'false',
+        onclick: () => {
+          value = !value;
+          sw.classList.toggle('on', value);
+          sw.setAttribute('aria-checked', value ? 'true' : 'false');
+          onChange(value);
+        }
+      }, el('span', { class: 'recap-set-switch-knob' }));
+
+      return el('label', { class: 'recap-set-toggle' },
+        el('span', { class: 'recap-set-toggle-text' },
+          el('span', { class: 'recap-set-toggle-l' }, label),
+          desc ? el('span', { class: 'recap-set-toggle-d' }, desc) : null
+        ),
+        sw
+      );
+    }
+
+    // Esc to close
+    const onKey = (e) => { if (e.key === 'Escape') closeSettings(); };
+    window.addEventListener('keydown', onKey);
+    settingsOverlay._onKey = onKey;
+
+    // Load from chrome.storage
+    if (storage) {
+      storage.get(['openaiApiKey', 'summaryLanguage', 'uiLanguage', 'filterSponsors'], (result) => {
+        if (result.openaiApiKey != null) state.openaiApiKey = result.openaiApiKey;
+        if (result.summaryLanguage) state.summaryLanguage = result.summaryLanguage;
+        if (result.uiLanguage) state.uiLanguage = result.uiLanguage;
+        if (typeof result.filterSponsors === 'boolean') state.filterSponsors = result.filterSponsors;
+        render();
+      });
+    } else {
+      render();
+    }
+  }
+
+  function closeSettings() {
+    if (!settingsOverlay) return;
+    if (settingsOverlay._onKey) window.removeEventListener('keydown', settingsOverlay._onKey);
+    settingsOverlay.remove();
+    settingsOverlay = null;
   }
 
   // ---------- states ---------------------------------------------------------
