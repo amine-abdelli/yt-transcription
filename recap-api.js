@@ -119,7 +119,8 @@ Respond with strict JSON: { "claims": [{"text": "...", "ts": "1:23"}], "quotes":
 }
 
 /**
- * Fact-check a single claim. Returns verdict + short note + sources.
+ * Fact-check a single claim using the OpenAI Responses API with the web_search tool.
+ * Returns verdict + grounded explanation + real cited URLs retrieved from the web.
  * Verdict ∈ 'verified' | 'disputed' | 'false' | 'unverified'.
  */
 async function factCheckClaim(claimText, apiKey, language = 'en') {
@@ -129,39 +130,38 @@ async function factCheckClaim(claimText, apiKey, language = 'en') {
 
     const langName = { fr: 'French', en: 'English', es: 'Spanish', de: 'German' }[language] || 'English';
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    // Use the Responses API with the web_search tool so the model fetches live pages.
+    // Annotations on the output message contain actual URLs retrieved during the search.
+    const response = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({
         model: 'gpt-4o-mini',
-        response_format: { type: 'json_object' },
-        messages: [
+        tools: [{ type: 'web_search', search_context_size: 'medium' }],
+        tool_choice: 'required',
+        input: [
           {
             role: 'system',
-            content: `You are a careful fact-checker. Given a single factual claim, assess it using your training knowledge and respond in ${langName}.
-
-Verdict values:
-- "verified"   — well-established, supported by reliable sources
-- "disputed"   — partially true, missing context, or contested by reliable sources
-- "false"      — contradicted by reliable evidence
-- "unverified" — cannot be checked from your training data; needs primary research
-
-Respond with strict JSON:
+            content: `You are a rigorous fact-checker. Search the web to verify the claim, then respond in ${langName} with this exact JSON and nothing else:
 {
   "verdict": "verified" | "disputed" | "false" | "unverified",
-  "note": "1-2 sentence explanation in ${langName}",
+  "note": "2-3 sentence explanation grounded in what you found online, in ${langName}",
   "sources": [
-    { "name": "Name of organization or publication", "domain": "example.com", "url": "https://example.com/path/to/article-or-page", "date": "YYYY or YYYY-MM" }
+    { "name": "Publication or site name", "url": "https://full-url-you-retrieved", "date": "YYYY-MM-DD or YYYY-MM or YYYY" }
   ]
 }
 
-Sources should be real, credible references (Reuters, AP, BBC, peer-reviewed journals, official .gov sites, etc.). Up to 3 sources. If unverified, return an empty sources array.
-For "url": provide the full URL only if you are certain it exists and is publicly accessible. If unsure of the exact URL, set "url" to null — do not fabricate URLs.`
+Verdict rules:
+- "verified"   — clearly confirmed by reliable sources found online
+- "disputed"   — partially true, contested, or lacking consensus across sources
+- "false"      — contradicted by reliable evidence found online
+- "unverified" — not enough credible information found to make a call
+
+Sources: only include URLs you actually retrieved. Up to 3. Prefer primary sources (official sites, major newswires, peer-reviewed papers). Empty array if nothing credible found.`
           },
-          { role: 'user', content: 'Claim: ' + claimText }
+          { role: 'user', content: 'Fact-check this claim: ' + claimText }
         ],
-        temperature: 0.1,
-        max_tokens: 700
+        max_output_tokens: 1000
       })
     });
 
@@ -171,19 +171,52 @@ For "url": provide the full URL only if you are certain it exists and is publicl
     }
 
     const data = await response.json();
-    const content = data.choices[0]?.message?.content || '{}';
-    let parsed;
-    try { parsed = JSON.parse(content); } catch { parsed = { verdict: 'unverified', note: 'Could not parse fact-check response.', sources: [] }; }
 
-    const verdict = ['verified', 'disputed', 'false', 'unverified'].includes(parsed.verdict) ? parsed.verdict : 'unverified';
-    return {
-      success: true,
-      verdict,
-      note: parsed.note || '',
-      sources: Array.isArray(parsed.sources) ? parsed.sources.slice(0, 3) : []
-    };
+    // The Responses API returns output as an array of items.
+    // The message item contains content blocks with text + annotations.
+    const messageItem = (data.output || []).find(o => o.type === 'message');
+    const textBlock = (messageItem?.content || []).find(c => c.type === 'output_text');
+    const rawText = textBlock?.text || '';
+
+    // Collect cited URLs from annotations (these are real URLs fetched by the search tool)
+    const annotationSources = {};
+    (textBlock?.annotations || []).forEach(a => {
+      if (a.type === 'url_citation' && a.url) {
+        annotationSources[a.url] = {
+          url: a.url,
+          name: a.title || extractDomain(a.url),
+          domain: extractDomain(a.url),
+          date: null
+        };
+      }
+    });
+
+    // Parse the JSON block the model wrote
+    const jsonMatch = rawText.replaceAll(/```json|```/g, '').trim().match(/\{[\s\S]*\}/);
+    let parsed;
+    try { parsed = JSON.parse(jsonMatch?.[0] || '{}'); }
+    catch { parsed = { verdict: 'unverified', note: rawText || 'Could not parse response.', sources: [] }; }
+
+    const verdict = ['verified', 'disputed', 'false', 'unverified'].includes(parsed.verdict)
+      ? parsed.verdict : 'unverified';
+
+    // Merge model-written sources (have dates/names) with annotation URLs not already listed
+    const modelSources = (Array.isArray(parsed.sources) ? parsed.sources : [])
+      .filter(s => s.url)
+      .map(s => ({ name: s.name || extractDomain(s.url), url: s.url, domain: extractDomain(s.url), date: s.date || null }));
+
+    const modelUrls = new Set(modelSources.map(s => s.url));
+    const extraSources = Object.values(annotationSources).filter(s => !modelUrls.has(s.url));
+    const sources = [...modelSources, ...extraSources].slice(0, 3);
+
+    return { success: true, verdict, note: parsed.note || '', sources };
   } catch (err) {
     console.error('[Recap] factCheckClaim failed:', err);
     return { success: false, verdict: 'unverified', note: err.message, sources: [] };
   }
+}
+
+function extractDomain(url) {
+  try { return new URL(url).hostname.replace(/^www\./, ''); }
+  catch { return url; }
 }
