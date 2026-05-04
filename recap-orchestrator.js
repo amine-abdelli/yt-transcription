@@ -225,8 +225,7 @@
   // ---------- mount idle panel + override the existing dropdown call ---------
   function mountWhenReady() {
     const tryMount = () => {
-      const secondary = document.querySelector('#secondary');
-      if (!secondary) return false;
+      if (!document.querySelector('ytd-watch-metadata #bottom-row')) return false;
       window.RecapPanel.mount();
       window.RecapPanel.showIdle();
       return true;

@@ -151,16 +151,17 @@ Respond with strict JSON:
   "verdict": "verified" | "disputed" | "false" | "unverified",
   "note": "1-2 sentence explanation in ${langName}",
   "sources": [
-    { "name": "Name of organization or publication", "domain": "example.com", "date": "YYYY or YYYY-MM" }
+    { "name": "Name of organization or publication", "domain": "example.com", "url": "https://example.com/path/to/article-or-page", "date": "YYYY or YYYY-MM" }
   ]
 }
 
-Sources should be real, credible references the claim could be checked against (Reuters, AP, BBC, peer-reviewed journals, official .gov sites, etc.). Up to 3 sources. If unverified, return an empty sources array.`
+Sources should be real, credible references (Reuters, AP, BBC, peer-reviewed journals, official .gov sites, etc.). Up to 3 sources. If unverified, return an empty sources array.
+For "url": provide the full URL only if you are certain it exists and is publicly accessible. If unsure of the exact URL, set "url" to null — do not fabricate URLs.`
           },
           { role: 'user', content: 'Claim: ' + claimText }
         ],
         temperature: 0.1,
-        max_tokens: 500
+        max_tokens: 700
       })
     });
 

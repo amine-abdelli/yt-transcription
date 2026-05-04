@@ -3,6 +3,10 @@
  * Everything is scoped under .recap-root so nothing leaks into YT chrome.
  * ========================================================================= */
 
+#recap-mount {
+  margin-top: 16px;
+}
+
 .recap-root {
   --rcp-bg: #0f0f0f;
   --rcp-bg-elev: #1a1a1a;

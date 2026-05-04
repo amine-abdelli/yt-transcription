@@ -3,7 +3,7 @@
  * Vanilla DOM, scoped under .recap-root (see panel.css)
  *
  * Public API (window.RecapPanel):
- *   .mount()                              -> ensure host node exists in #secondary
+ *   .mount()                              -> ensure host node exists between title and description
  *   .showIdle()                           -> idle state with length picker + CTA
  *   .showLoading(msg?)                    -> shimmer skeletons + status line
  *   .showStreaming(text)                  -> partial paragraph w/ blinking caret
@@ -90,18 +90,14 @@
 
   function ensureRoot() {
     if (root && document.body.contains(root)) return root;
-    // host page is YouTube; we mount inside #secondary, above existing content
+    // Mount inside ytd-watch-metadata, before #bottom-row (description) and after #above-the-fold (title + channel)
     let mount = document.getElementById('recap-mount');
     if (!mount) {
       mount = document.createElement('div');
       mount.id = 'recap-mount';
-      const secondary = document.querySelector('#secondary');
-      if (!secondary) return null;
-      // place after the existing transcript-download-container if present, else first
-      const existing = document.getElementById('transcript-download-container');
-      if (existing && existing.nextSibling) secondary.insertBefore(mount, existing.nextSibling);
-      else if (existing) secondary.appendChild(mount);
-      else secondary.insertBefore(mount, secondary.firstChild);
+      const bottomRow = document.querySelector('ytd-watch-metadata #bottom-row');
+      if (!bottomRow || !bottomRow.parentNode) return null;
+      bottomRow.parentNode.insertBefore(mount, bottomRow);
     }
     root = el('div', { class: 'recap-root', 'data-theme': currentTheme });
     panel = el('div', { class: 'recap-panel' });
@@ -356,8 +352,9 @@
       if (c.sources && c.sources.length) {
         const ul = el('ul', { class: 'recap-claim-sources' });
         c.sources.forEach(s => {
+          const href = s.url || (s.domain ? 'https://' + s.domain : null);
           ul.appendChild(el('li', {
-            onclick: () => s.url && window.open(s.url, '_blank', 'noopener')
+            onclick: () => href && window.open(href, '_blank', 'noopener')
           },
             el('span', { class: 'recap-src-dot' }),
             el('span', { class: 'recap-src-name' }, s.name || s.domain || 'Source'),
